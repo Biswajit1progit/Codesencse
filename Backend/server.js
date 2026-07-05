@@ -4,8 +4,10 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.js';
-import repoRoutes from './routes/repos.js';  // add this import
+import repoRoutes from './routes/repos.js';
 import qaRoutes from './routes/qa.js';
+import webhookRoutes from './routes/webhooks.js';
+import reviewRoutes from './routes/reviews.js';
 
 const app = express();
 
@@ -16,11 +18,17 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// Webhooks FIRST — needs raw body
+app.use('/api/webhooks', webhookRoutes);
+
+// Then JSON parser for everything else
 app.use(express.json());
 app.use(cookieParser());
+
 app.use('/api/auth', authRoutes);
 app.use('/api/repos', repoRoutes);
 app.use('/api/qa', qaRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'CodeSense backend running' });
