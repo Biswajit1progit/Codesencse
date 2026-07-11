@@ -230,14 +230,17 @@ const Dashboard = () => {
             <img src={user.avatarUrl} alt={user.username} className="w-6 h-6 md:w-7 md:h-7 rounded-full ring-2 ring-white/10" />
             <span className="text-xs md:text-sm font-medium text-slate-300 hidden sm:inline">{user.username}</span>
           </div>
-          <motion.button
-           whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-            onClick={() => navigate('/evals')}
-                 className="text-xs md:text-sm text-slate-400 hover:text-white bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.07] px-3 md:px-4 py-2 rounded-xl transition-all cursor-pointer hidden md:block"
-              >
-                📊 Evals
-            </motion.button>
+          {/* Only show eval link for admin/owner */}
+         {user?.username === 'Biswajit1progit' && (
+  <motion.button
+    whileHover={{ scale: 1.03 }}
+    whileTap={{ scale: 0.97 }}
+    onClick={() => navigate('/evals')}
+    className="text-xs md:text-sm text-slate-400 hover:text-white bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.07] px-3 md:px-4 py-2 rounded-xl transition-all cursor-pointer hidden md:block"
+  >
+    📊 Evals
+  </motion.button>
+         )}
           <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
