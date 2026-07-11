@@ -5,7 +5,7 @@ import Repo from '../models/Repo.js';
 // Tool 1 — retrieve relevant code chunks for a query
 export const retrieveContext = async (query, repoId, topK = 5) => {
   const queryEmbedding = await embedText(query);
-  const chunks = await searchChunks(queryEmbedding, repoId, topK);
+  const chunks = await searchChunks(queryEmbedding, repoId, topK, { query });
   return chunks;
 };
 

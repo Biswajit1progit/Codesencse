@@ -5,12 +5,19 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const pemPath = path.join(__dirname, '..', process.env.GITHUB_APP_PRIVATE_KEY_PATH);
-const privateKey = fs.readFileSync(pemPath, 'utf8');
+// In production: use env variable. In dev: use .pem file
+const getPrivateKey = () => {
+  if (process.env.GITHUB_APP_PRIVATE_KEY) {
+    // Replace literal \n with actual newlines (Render stores it this way)
+    return process.env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, '\n');
+  }
+  const pemPath = path.join(__dirname, '..', process.env.GITHUB_APP_PRIVATE_KEY_PATH);
+  return fs.readFileSync(pemPath, 'utf8');
+};
 
 export const githubApp = new App({
   appId: Number(process.env.GITHUB_APP_ID),
-  privateKey,
+  privateKey: getPrivateKey(),
   webhooks: {
     secret: process.env.GITHUB_WEBHOOK_SECRET,
   },
@@ -27,7 +34,6 @@ export const fetchPRDiff = async (octokit, owner, repo, pullNumber) => {
     pull_number: pullNumber,
     per_page: 100,
   });
-
   return response.data.map((file) => ({
     filename: file.filename,
     status: file.status,
@@ -44,7 +50,6 @@ export const fetchPRDetails = async (octokit, owner, repo, pullNumber) => {
     repo,
     pull_number: pullNumber,
   });
-
   const pr = response.data;
   return {
     title: pr.title,

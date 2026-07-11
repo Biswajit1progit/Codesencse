@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import AuthCallback from './pages/AuthCallback';
+import EvalDashboard from './pages/EvalDashboard';
 
 // Protected route — redirects to home if not logged in
 const ProtectedRoute = ({ children }) => {
@@ -69,10 +70,16 @@ const App = () => {
               <Dashboard />
             </ProtectedRoute>
           } />
-
+         <Route path="/evals" element={
+  <ProtectedRoute>
+    <EvalDashboard />
+  </ProtectedRoute>
+} />
           {/* Catch all */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+
+        
       </AuthProvider>
     </BrowserRouter>
   );

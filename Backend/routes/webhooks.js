@@ -40,6 +40,22 @@ router.post('/github', express.raw({ type: 'application/json' }), async (req, re
 
   console.log(`\n📦 GitHub event: ${event} | action: ${payload.action} | delivery: ${deliveryId}`);
 
+  // Handle app installation on new repos
+  if (event === 'installation_repositories' && payload.action === 'added') {
+    const addedRepos = payload.repositories_added || [];
+    console.log(`\n📦 App installed on ${addedRepos.length} new repo(s):`);
+    addedRepos.forEach(r => console.log(`  - ${r.full_name}`));
+    return;
+  }
+
+  // Handle new installation created
+  if (event === 'installation' && payload.action === 'created') {
+    const repos = payload.repositories || [];
+    console.log(`\n📦 New installation on ${repos.length} repo(s):`);
+    repos.forEach(r => console.log(`  - ${r.full_name}`));
+    return;
+  }
+
   if (event !== 'pull_request') return;
   if (!['opened', 'synchronize'].includes(payload.action)) return;
 
@@ -56,35 +72,31 @@ router.post('/github', express.raw({ type: 'application/json' }), async (req, re
   try {
     const octokit = await getInstallationOctokit(installationId);
 
-    // Fetch PR details and diff
     const prDetails = await fetchPRDetails(octokit, owner, repo, pullNumber);
     const diff = await fetchPRDiff(octokit, owner, repo, pullNumber);
 
     console.log(`PR: ${prDetails.title} | +${prDetails.additions} -${prDetails.deletions} | ${prDetails.changedFiles} files`);
 
-    // Find the connected repo in MongoDB to get repoId for vector search
-  // Find connected repo
-const connectedRepo = await Repo.findOne({
-  fullName: `${owner}/${repo}`,
-  ingestionStatus: 'completed',
-});
+    const connectedRepo = await Repo.findOne({
+      fullName: `${owner}/${repo}`,
+      ingestionStatus: 'completed',
+    });
 
-if (!connectedRepo) {
-  console.log(`⚠️ Repo ${owner}/${repo} not ingested — skipping`);
-  return;
-}
+    if (!connectedRepo) {
+      console.log(`⚠️ Repo ${owner}/${repo} not ingested — skipping`);
+      return;
+    }
 
-// Run agent with userId
-await runReviewAgent({
-  owner,
-  repo,
-  pullNumber,
-  repoId: connectedRepo._id.toString(),
-  userId: connectedRepo.userId,  // ← add this line
-  installationId,
-  prDetails,
-  diff,
-});
+    await runReviewAgent({
+      owner,
+      repo,
+      pullNumber,
+      repoId: connectedRepo._id.toString(),
+      userId: connectedRepo.userId,
+      installationId,
+      prDetails,
+      diff,
+    });
 
   } catch (err) {
     console.error('Webhook processing error:', err.message);

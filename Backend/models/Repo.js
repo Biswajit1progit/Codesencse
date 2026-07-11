@@ -8,11 +8,11 @@ const repoSchema = new mongoose.Schema(
       required: true,
     },
     githubRepoId: {
-      type: Number, // GitHub's own numeric ID
+      type: Number,
       required: true,
     },
     fullName: {
-      type: String, // e.g. "camizo/safarsetu"
+      type: String,
       required: true,
     },
     defaultBranch: {
@@ -31,11 +31,22 @@ const repoSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    // NEW — store file SHA hashes for incremental ingestion
+    fileHashes: {
+      type: Object, // { "path/to/file.js": "sha1hash" }
+      default: {},
+    },
+    // NEW — track ingestion stats
+    ingestionStats: {
+      totalFiles: { type: Number, default: 0 },
+      changedFiles: { type: Number, default: 0 },
+      skippedFiles: { type: Number, default: 0 },
+      lastFullIngest: { type: Date },
+    },
   },
   { timestamps: true }
 );
 
-// One user cannot add the same repo twice
 repoSchema.index({ userId: 1, githubRepoId: 1 }, { unique: true });
 
 export default mongoose.model('Repo', repoSchema);

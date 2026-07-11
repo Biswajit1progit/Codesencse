@@ -9,7 +9,6 @@ const addTrace = (state, step, detail) => {
 };
 
 // Node 1 — PLAN
-// Agent decides what to retrieve based on the diff
 export const planNode = async (state) => {
   console.log('\n--- PLAN NODE ---');
   const diffSummary = summarizeDiff(state.diff);
@@ -48,7 +47,6 @@ Example: ["how is auth middleware implemented", "where are database transactions
     const clean = content.replace(/```json|```/g, '').trim();
     queries = JSON.parse(clean);
   } catch {
-    // Fallback queries based on changed files
     queries = diffSummary.files.map(f => `code in ${f.filename}`);
   }
 
@@ -67,7 +65,6 @@ Example: ["how is auth middleware implemented", "where are database transactions
 };
 
 // Node 2 — RETRIEVE
-// Fetch relevant chunks from pgvector for each query
 export const retrieveNode = async (state) => {
   console.log('\n--- RETRIEVE NODE ---');
 
@@ -82,7 +79,7 @@ export const retrieveNode = async (state) => {
   const seenIds = new Set();
 
   for (const query of state.plan.queries) {
-    const chunks = await retrieveContext(query, state.repoId, 4);
+    const chunks = await retrieveContext(query, state.repoId, 6);
     for (const chunk of chunks) {
       if (!seenIds.has(chunk.id)) {
         seenIds.add(chunk.id);
@@ -91,17 +88,27 @@ export const retrieveNode = async (state) => {
     }
   }
 
-  console.log(`Retrieved ${allChunks.length} unique chunks`);
+  // File diversity — max 2 chunks per file path
+  const fileCounts = {};
+  const diverseChunks = [];
+  for (const chunk of allChunks) {
+    const file = chunk.file_path;
+    fileCounts[file] = (fileCounts[file] || 0) + 1;
+    if (fileCounts[file] <= 2) {
+      diverseChunks.push(chunk);
+    }
+  }
+
+  console.log(`Retrieved ${diverseChunks.length} unique chunks (diversity filtered from ${allChunks.length})`);
 
   return {
     ...state,
-    retrievedChunks: allChunks,
-    trace: addTrace(state, 'RETRIEVE', `Retrieved ${allChunks.length} unique code chunks from ${state.plan.queries.length} queries`),
+    retrievedChunks: diverseChunks,
+    trace: addTrace(state, 'RETRIEVE', `Retrieved ${diverseChunks.length} chunks from ${state.plan.queries.length} queries (diversity filtered)`),
   };
 };
 
 // Node 3 — ANALYZE
-// Analyze the diff against retrieved context
 export const analyzeNode = async (state) => {
   console.log('\n--- ANALYZE NODE ---');
 
@@ -115,7 +122,6 @@ export const analyzeNode = async (state) => {
 
   const diffSummary = state.plan.diffSummary;
 
-  // Build context from retrieved chunks
   const context = state.retrievedChunks
     .slice(0, 6)
     .map((c, i) =>
@@ -123,7 +129,6 @@ export const analyzeNode = async (state) => {
     )
     .join('\n\n');
 
-  // Build diff context
   const diffContext = diffSummary.files
     .map(f => `File: ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
     .join('\n\n');
@@ -140,19 +145,26 @@ PR DIFF:
 ${diffContext}
 
 Analyze the changes and identify:
-1. Potential bugs or logic errors
-2. Security concerns
-3. Performance issues  
-4. Code style/pattern inconsistencies with existing code
-5. Missing error handling
+1. Potential bugs or logic errors (type coercion, null checks, off-by-one)
+2. Security concerns (missing auth checks, IDOR, data exposure in logs, unvalidated input)
+3. Catastrophic operations (deleteMany with empty filter, irreversible actions, no confirmation)
+4. Performance issues
+5. Code style/pattern inconsistencies with existing code
+6. Missing error handling
+7. Sensitive data logging (console.error/log that may expose tokens, payment data, PII)
+
+Be specific — reference actual function names, variable names, and line numbers from the diff.
+Do not flag things that are correct patterns in the existing codebase.
 
 Return ONLY a JSON object with this structure:
 {
-  "bugs": ["description of bug 1", "description of bug 2"],
+  "bugs": ["description of bug 1"],
   "security": ["security concern 1"],
+  "catastrophic": ["catastrophic operation 1"],
   "performance": ["performance issue 1"],
   "style": ["style issue 1"],
   "missing": ["missing thing 1"],
+  "sensitive_logging": ["sensitive data logging concern 1"],
   "positive": ["good thing about this PR"]
 }`;
 
@@ -184,7 +196,6 @@ Return ONLY a JSON object with this structure:
 };
 
 // Node 4 — REVIEW
-// Generate final structured review comment
 export const reviewNode = async (state) => {
   console.log('\n--- REVIEW NODE ---');
 
@@ -211,11 +222,12 @@ ${JSON.stringify(analysis, null, 2)}
 Write a review comment that:
 1. Starts with ## 🤖 CodeSense Review
 2. Has a brief summary paragraph
-3. Uses sections: 🐛 Issues Found, 🔒 Security, ⚡ Performance, 💅 Style, ✅ Looks Good
+3. Uses sections: 🐛 Issues Found, 🔒 Security, ⚠️ Catastrophic Risk, 📊 Sensitive Logging, ⚡ Performance, 💅 Style, ✅ Looks Good
 4. Only includes sections that have content
-5. Ends with a overall verdict: APPROVE / REQUEST_CHANGES / COMMENT
-6. Is constructive and specific, not generic
-7. References actual function names and file names from the analysis
+5. Ends with overall verdict: APPROVE / REQUEST_CHANGES / COMMENT
+6. Is constructive and specific — references actual function names, variable names, file paths from the diff
+7. Does not invent concerns not visible in the diff
+8. Flags sensitive data logging explicitly if console.error/log exposes tokens, payment data, or PII
 
 Keep it concise — max 400 words.`;
 

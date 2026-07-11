@@ -8,6 +8,7 @@ import repoRoutes from './routes/repos.js';
 import qaRoutes from './routes/qa.js';
 import webhookRoutes from './routes/webhooks.js';
 import reviewRoutes from './routes/reviews.js';
+import evalRoutes from './routes/evals.js';
 
 const app = express();
 
@@ -29,12 +30,16 @@ app.use('/api/auth', authRoutes);
 app.use('/api/repos', repoRoutes);
 app.use('/api/qa', qaRoutes);
 app.use('/api/reviews', reviewRoutes);
+app.use('/api/evals', evalRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'CodeSense backend running' });
 });
 
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect(process.env.MONGODB_URI,{
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+})
   .then(() => {
     console.log('MongoDB connected');
     app.listen(process.env.PORT, () => {

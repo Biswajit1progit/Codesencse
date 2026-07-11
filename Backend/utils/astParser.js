@@ -1,11 +1,9 @@
 import * as babelParser from '@babel/parser';
 import traverse from '@babel/traverse';
 
-// Parse a JS/TS file and extract function/class level chunks
 export const extractChunks = (code, filePath) => {
   const chunks = [];
 
-  // Detect if TypeScript
   const isTS = filePath.endsWith('.ts') || filePath.endsWith('.tsx');
   const isJSX = filePath.endsWith('.jsx') || filePath.endsWith('.tsx');
 
@@ -13,7 +11,7 @@ export const extractChunks = (code, filePath) => {
   try {
     ast = babelParser.parse(code, {
       sourceType: 'module',
-      errorRecovery: true, // don't crash on partial parse errors
+      errorRecovery: true,
       plugins: [
         isTS ? 'typescript' : 'flow',
         isJSX ? 'jsx' : null,
@@ -24,7 +22,6 @@ export const extractChunks = (code, filePath) => {
       ].filter(Boolean),
     });
   } catch (err) {
-    // If parsing fails entirely, return the whole file as one chunk
     return [{
       type: 'file',
       name: filePath.split('/').pop(),
@@ -36,29 +33,22 @@ export const extractChunks = (code, filePath) => {
   }
 
   const lines = code.split('\n');
-
-  const getLines = (start, end) => {
-    return lines.slice(start - 1, end).join('\n');
-  };
-
+  const getLines = (start, end) => lines.slice(start - 1, end).join('\n');
   const getName = (node) => {
     if (node.id?.name) return node.id.name;
     if (node.key?.name) return node.key.name;
     return 'anonymous';
   };
 
-  // Track what we've already chunked to avoid duplicates
   const chunkedRanges = new Set();
 
   traverse.default(ast, {
-    // Named function declarations: function myFunc() {}
     FunctionDeclaration(path) {
       const node = path.node;
       if (!node.loc) return;
       const key = `${node.loc.start.line}-${node.loc.end.line}`;
       if (chunkedRanges.has(key)) return;
       chunkedRanges.add(key);
-
       chunks.push({
         type: 'function',
         name: getName(node),
@@ -68,26 +58,17 @@ export const extractChunks = (code, filePath) => {
         endLine: node.loc.end.line,
       });
     },
-
-    // Arrow functions and function expressions assigned to variables
-    // e.g. const myFunc = () => {} or const myFunc = function() {}
     VariableDeclaration(path) {
       const node = path.node;
       if (!node.loc) return;
-
       for (const declarator of node.declarations) {
         const init = declarator.init;
         if (!init) continue;
-        if (
-          init.type !== 'ArrowFunctionExpression' &&
-          init.type !== 'FunctionExpression'
-        ) continue;
+        if (init.type !== 'ArrowFunctionExpression' && init.type !== 'FunctionExpression') continue;
         if (!init.loc) continue;
-
         const key = `${node.loc.start.line}-${init.loc.end.line}`;
         if (chunkedRanges.has(key)) return;
         chunkedRanges.add(key);
-
         chunks.push({
           type: 'function',
           name: declarator.id?.name || 'anonymous',
@@ -98,15 +79,12 @@ export const extractChunks = (code, filePath) => {
         });
       }
     },
-
-    // Class declarations: class MyClass {}
     ClassDeclaration(path) {
       const node = path.node;
       if (!node.loc) return;
       const key = `${node.loc.start.line}-${node.loc.end.line}`;
       if (chunkedRanges.has(key)) return;
       chunkedRanges.add(key);
-
       chunks.push({
         type: 'class',
         name: getName(node),
@@ -116,15 +94,12 @@ export const extractChunks = (code, filePath) => {
         endLine: node.loc.end.line,
       });
     },
-
-    // Class methods: myMethod() {} inside a class
     ClassMethod(path) {
       const node = path.node;
       if (!node.loc) return;
       const key = `${node.loc.start.line}-${node.loc.end.line}`;
       if (chunkedRanges.has(key)) return;
       chunkedRanges.add(key);
-
       chunks.push({
         type: 'method',
         name: getName(node),
@@ -134,15 +109,12 @@ export const extractChunks = (code, filePath) => {
         endLine: node.loc.end.line,
       });
     },
-
-    // Object methods: { myMethod() {} }
     ObjectMethod(path) {
       const node = path.node;
       if (!node.loc) return;
       const key = `${node.loc.start.line}-${node.loc.end.line}`;
       if (chunkedRanges.has(key)) return;
       chunkedRanges.add(key);
-
       chunks.push({
         type: 'method',
         name: getName(node),
@@ -154,8 +126,6 @@ export const extractChunks = (code, filePath) => {
     },
   });
 
-  // If no chunks extracted (e.g. config file, constants only)
-  // return whole file as one chunk so nothing is lost
   if (chunks.length === 0) {
     return [{
       type: 'file',
@@ -167,21 +137,25 @@ export const extractChunks = (code, filePath) => {
     }];
   }
 
-  // Sort by line number
   return chunks.sort((a, b) => a.startLine - b.startLine);
 };
 
-// Chunk size guard — split very large chunks into smaller pieces
-// Prevents embedding API token limits being exceeded
-export const splitLargeChunk = (chunk, maxLines = 80) => {
+// NEW — sliding window with overlap
+// maxLines: max chunk size
+// overlapLines: how many lines to overlap between chunks
+export const splitLargeChunk = (chunk, maxLines = 80, overlapLines = 20) => {
   const lines = chunk.content.split('\n');
+
+  // Small chunk — no splitting needed
   if (lines.length <= maxLines) return [chunk];
 
   const result = [];
   let partIndex = 0;
+  let i = 0;
 
-  for (let i = 0; i < lines.length; i += maxLines) {
+  while (i < lines.length) {
     const sliceLines = lines.slice(i, i + maxLines);
+
     result.push({
       ...chunk,
       name: `${chunk.name}_part${partIndex}`,
@@ -189,8 +163,35 @@ export const splitLargeChunk = (chunk, maxLines = 80) => {
       startLine: chunk.startLine + i,
       endLine: chunk.startLine + i + sliceLines.length - 1,
     });
+
     partIndex++;
+
+    // Move forward by (maxLines - overlapLines) so next chunk overlaps
+    const step = maxLines - overlapLines;
+    i += step;
+
+    // If remaining lines are less than overlapLines, stop — already covered
+    if (i >= lines.length) break;
   }
 
   return result;
+};
+
+// Build overlap context chunk — adds N lines before and after a chunk
+// Used during retrieval to give the LLM more surrounding context
+export const addContextWindow = (chunk, allFileLines, contextLines = 10) => {
+  const startLine = Math.max(0, chunk.startLine - 1 - contextLines);
+  const endLine = Math.min(allFileLines.length, chunk.endLine + contextLines);
+
+  const beforeContext = allFileLines.slice(startLine, chunk.startLine - 1).join('\n');
+  const afterContext = allFileLines.slice(chunk.endLine, endLine).join('\n');
+
+  return {
+    ...chunk,
+    content: [
+      beforeContext ? `// ... context before ...\n${beforeContext}` : '',
+      chunk.content,
+      afterContext ? `${afterContext}\n// ... context after ...` : '',
+    ].filter(Boolean).join('\n'),
+  };
 };

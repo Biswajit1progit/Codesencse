@@ -29,7 +29,7 @@ const Dashboard = () => {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewDetail, setReviewDetail] = useState(null);
   const [loadingReview, setLoadingReview] = useState(false);
-
+  const [installSuccess, setInstallSuccess] = useState(false);
   // Q&A state
   const [selectedRepo, setSelectedRepo] = useState(null);
   const [showChat, setShowChat] = useState(false);
@@ -41,6 +41,18 @@ const Dashboard = () => {
   useEffect(() => {
     fetchConnectedRepos();
     fetchRecentReviews();
+    // Check if user just came back from GitHub App install
+  const urlParams = new URLSearchParams(window.location.search);
+  const installationId = urlParams.get('installation_id');
+  const setupAction = urlParams.get('setup_action');
+
+  if (installationId && setupAction === 'install') {
+    // Clean URL
+    window.history.replaceState({}, document.title, '/dashboard');
+    // Show success toast
+    setInstallSuccess(true);
+    setTimeout(() => setInstallSuccess(false), 5000);
+  }
   }, []);
 
   useEffect(() => {
@@ -219,6 +231,14 @@ const Dashboard = () => {
             <span className="text-xs md:text-sm font-medium text-slate-300 hidden sm:inline">{user.username}</span>
           </div>
           <motion.button
+           whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+            onClick={() => navigate('/evals')}
+                 className="text-xs md:text-sm text-slate-400 hover:text-white bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.07] px-3 md:px-4 py-2 rounded-xl transition-all cursor-pointer hidden md:block"
+              >
+                📊 Evals
+            </motion.button>
+          <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
             onClick={handleLogout}
@@ -228,7 +248,16 @@ const Dashboard = () => {
           </motion.button>
         </div>
       </motion.nav>
-
+       {installSuccess && (
+  <motion.div
+    initial={{ opacity: 0, y: -10 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0 }}
+    className="bg-green-500/10 border border-green-500/20 text-green-400 text-sm px-6 py-3 text-center"
+  >
+    ✅ GitHub App installed successfully! Now connect your repo below and click Ingest.
+  </motion.div>
+)}
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-10">
 
         {/* Welcome */}
