@@ -58,7 +58,7 @@ export const deleteAllRefreshTokens = async (userId) => {
 };
 
 // Set httpOnly cookie — one place, consistent options everywhere
-export const setRefreshCookie = (res, refreshToken) => {
+/* export const setRefreshCookie = (res, refreshToken) => {
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: false,
@@ -72,5 +72,22 @@ export const clearRefreshCookie = (res) => {
     httpOnly: true,
     secure: false,
     sameSite: 'lax',
+  });
+}; */
+
+export const setRefreshCookie = (res, refreshToken) => {
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production', // true on Render, false locally
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // none required for cross-domain
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+};
+
+export const clearRefreshCookie = (res) => {
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   });
 };
