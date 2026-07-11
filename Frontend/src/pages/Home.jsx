@@ -25,7 +25,8 @@ const features = [
 
 const Home = () => {
   const handleGithubLogin = () => {
-    window.location.href = 'http://localhost:5000/api/auth/github';
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    window.location.href = `${apiUrl.replace('/api', '')}/api/auth/github`;
   };
 
   return (
