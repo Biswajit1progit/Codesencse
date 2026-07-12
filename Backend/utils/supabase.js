@@ -8,6 +8,8 @@ const pool = new Pool({
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
+  // Force IPv4 — Render free tier doesn't support IPv6
+  family: 4,
 });
 
 pool.on('error', (err) => {
