@@ -7,26 +7,36 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const restoreSession = async () => {
-      try {
-        const { data: refreshData } = await apiClient.post('/auth/refresh', {}, {
-          withCredentials: true
-        });
-        setAccessToken(refreshData.accessToken);
+useEffect(() => {
+  if (window.location.pathname === '/auth/callback') {
+    setLoading(false);
+    return;
+  }
 
-        const { data: profileData } = await apiClient.get('/auth/profile');
-        setUser(profileData.user);
-      } catch {
-        clearAccessToken();
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const restoreSession = async () => {
+    try {
+      // Timeout after 15 seconds — don't block UI forever
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
-    restoreSession();
-  }, []);
+      const { data: refreshData } = await apiClient.post('/auth/refresh', {}, {
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      setAccessToken(refreshData.accessToken);
+      const { data: profileData } = await apiClient.get('/auth/profile');
+      setUser(profileData.user);
+    } catch {
+      clearAccessToken();
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  restoreSession();
+}, []);
 
   const logout = async () => {
     try {

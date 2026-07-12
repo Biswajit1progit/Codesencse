@@ -114,8 +114,8 @@ router.post('/refresh', async (req, res) => {
     }
 
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-    console.log('DECODED:', decoded); // add this
-
+/*     console.log('DECODED:', decoded); // add this
+ */
     const user = await User.findById(decoded.userId).select(
       '-githubAccessTokenEncrypted'
     );
