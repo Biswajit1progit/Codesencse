@@ -54,6 +54,7 @@ const reviewSchema = new mongoose.Schema(
       deletions: { type: Number, default: 0 },
       changedFiles: { type: Number, default: 0 },
     },
+    inlineCommentsCount: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
@@ -61,5 +62,5 @@ const reviewSchema = new mongoose.Schema(
 // One review per PR — if PR gets new commits, update existing review
 reviewSchema.index({ repoId: 1, pullNumber: 1 }, { unique: true });
 reviewSchema.index({ userId: 1, createdAt: -1 });
-
+reviewSchema.index({ repoFullName: 1 });
 export default mongoose.model('Review', reviewSchema);

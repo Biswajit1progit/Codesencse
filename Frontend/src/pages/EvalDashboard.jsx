@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../api/apiClient';
 
-const MetricCard = ({ label, value, unit = '', color = 'blue', delay = 0 }) => (
+/* const MetricCard = ({ label, value, unit = '', color = 'blue', delay = 0 }) => (
   <motion.div
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
@@ -23,8 +23,27 @@ const MetricCard = ({ label, value, unit = '', color = 'blue', delay = 0 }) => (
       {typeof value === 'number' ? value.toFixed(1) : value}{unit}
     </p>
   </motion.div>
+); */
+const MetricCard = ({ label, value, unit = '', color = 'blue', delay = 0, decimals = 1 }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ delay }}
+    className="bg-white/[0.03] backdrop-blur-sm border border-white/[0.07] rounded-2xl p-5"
+  >
+    <p className="text-xs text-slate-500 mb-2">{label}</p>
+    <p className={`text-3xl font-bold ${
+      color === 'green' ? 'text-green-400' :
+      color === 'blue' ? 'text-blue-400' :
+      color === 'violet' ? 'text-violet-400' :
+      color === 'orange' ? 'text-orange-400' :
+      color === 'pink' ? 'text-pink-400' :
+      'text-white'
+    }`}>
+      {typeof value === 'number' ? value.toFixed(decimals) : value}{unit}
+    </p>
+  </motion.div>
 );
-
 const BarChart = ({ data, valueKey, labelKey, color = '#3b82f6', max = 1 }) => {
   if (!data || data.length === 0) return null;
   return (
@@ -500,12 +519,13 @@ const EvalDashboard = () => {
                 delay={0.1}
               />
               <MetricCard
-                label="Total Cost"
-                value={costSummary?.totalCostUsd || 0}
-                unit=" USD"
-                color="green"
-                delay={0.15}
-              />
+               label="Total Cost"
+  value={costSummary?.totalCostUsd || 0}
+  unit=" USD"
+  color="green"
+  delay={0.15}
+                decimals={4} // NEW
+                />
               <MetricCard
                 label="Total Tokens"
                 value={(costSummary?.totalInputTokens || 0) + (costSummary?.totalOutputTokens || 0)}

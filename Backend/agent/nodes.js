@@ -109,7 +109,7 @@ export const retrieveNode = async (state) => {
 };
 
 // Node 3 — ANALYZE
-export const analyzeNode = async (state) => {
+/* export const analyzeNode = async (state) => {
   console.log('\n--- ANALYZE NODE ---');
 
   if (state.plan.skip) {
@@ -193,8 +193,105 @@ Return ONLY a JSON object with this structure:
     analysis,
     trace: addTrace(state, 'ANALYZE', `Found ${issueCount} items across ${Object.keys(analysis).length} categories`),
   };
-};
+}; */
+// Node 3 — ANALYZE
+export const analyzeNode = async (state) => {
+  console.log('\n--- ANALYZE NODE ---');
 
+  if (state.plan.skip) {
+    return {
+      ...state,
+      analysis: { skip: true },
+      trace: addTrace(state, 'ANALYZE', 'Skipped'),
+    };
+  }
+
+  const diffSummary = state.plan.diffSummary;
+
+  const context = state.retrievedChunks
+    .slice(0, 6)
+    .map((c, i) =>
+      `[${i + 1}] ${c.chunk_type} "${c.chunk_name}" in ${c.file_path}:\n\`\`\`\n${c.content.slice(0, 300)}\n\`\`\``
+    )
+    .join('\n\n');
+
+  const diffContext = diffSummary.files
+    .map(f => `File: ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
+    .join('\n\n');
+
+  const prompt = `You are an expert code reviewer. Analyze this PR diff against the existing codebase context.
+
+PR: "${state.prDetails.title}"
+Author: ${state.prDetails.author}
+
+EXISTING CODEBASE CONTEXT:
+${context}
+
+PR DIFF:
+${diffContext}
+
+Analyze the changes and identify:
+1. Potential bugs or logic errors (type coercion, null checks, off-by-one)
+2. Security concerns (missing auth checks, IDOR, data exposure in logs, unvalidated input)
+3. Catastrophic operations (deleteMany with empty filter, irreversible actions, no confirmation)
+4. Performance issues
+5. Code style/pattern inconsistencies with existing code
+6. Missing error handling
+7. Sensitive data logging (console.error/log that may expose tokens, payment data, PII)
+
+Be specific — reference actual function names, variable names, and line numbers from the diff.
+Do not flag things that are correct patterns in the existing codebase.
+
+Return ONLY a JSON object with this structure:
+{
+  "bugs": ["description of bug 1"],
+  "security": ["security concern 1"],
+  "catastrophic": ["catastrophic operation 1"],
+  "performance": ["performance issue 1"],
+  "style": ["style issue 1"],
+  "missing": ["missing thing 1"],
+  "sensitive_logging": ["sensitive data logging concern 1"],
+  "positive": ["good thing about this PR"],
+  "findings": [
+    {
+      "file": "exact/path/from/diff.js",
+      "line": 42,
+      "category": "security",
+      "severity": "high",
+      "message": "short specific description, under 200 chars"
+    }
+  ]
+}
+
+IMPORTANT for "findings": this array must mirror the issues you already listed above (bugs/security/catastrophic/performance/missing/sensitive_logging), but with a specific file path (must exactly match one of the file paths shown in PR DIFF above) and line number (must be a line number visible in that file's diff hunk — either a "+" added line or a " " context line, never a "-" removed line). Do not include "style" or "positive" items in findings. If you cannot confidently attribute an issue to a specific line, omit it from findings but still include it in its category array above.`;
+
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.1,
+    max_tokens: 1536, // increased from 1024 — findings array adds output length
+  });
+
+  let analysis = {};
+  try {
+    const content = completion.choices[0].message.content.trim();
+    const clean = content.replace(/```json|```/g, '').trim();
+    analysis = JSON.parse(clean);
+    if (!Array.isArray(analysis.findings)) analysis.findings = []; // NEW — safety default
+  } catch {
+    analysis = { error: 'Failed to parse analysis', raw: completion.choices[0].message.content, findings: [] };
+  }
+
+  const issueCount = Object.values(analysis)
+    .filter(v => Array.isArray(v))
+    .reduce((sum, arr) => sum + arr.length, 0);
+
+  return {
+    ...state,
+    analysis,
+    trace: addTrace(state, 'ANALYZE', `Found ${issueCount} items across ${Object.keys(analysis).length} categories`),
+  };
+};
 // Node 4 — REVIEW
 export const reviewNode = async (state) => {
   console.log('\n--- REVIEW NODE ---');
