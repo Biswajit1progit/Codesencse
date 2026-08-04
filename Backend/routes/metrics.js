@@ -27,5 +27,26 @@ router.get('/summary', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch metrics summary' });
   }
 });
+// NEW — this was missing, causing the 404 you just saw
+router.get('/trend', verifyToken, async (req, res) => {
+  const days = parseInt(req.query.days) || 30;
 
+  try {
+    const trend = await ReviewMetric.aggregate([
+      { $match: { createdAt: { $gte: new Date(Date.now() - days * 86400000) } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          reviews: { $sum: 1 },
+          avgLatencyMs: { $avg: '$latencyMs' },
+          dailyCostUsd: { $sum: '$costEstimateUsd' },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+    res.json(trend);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch metrics trend' });
+  }
+});
 export default router;
