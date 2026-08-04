@@ -9,7 +9,7 @@ import qaRoutes from './routes/qa.js';
 import webhookRoutes from './routes/webhooks.js';
 import reviewRoutes from './routes/reviews.js';
 import evalRoutes from './routes/evals.js';
-
+import metricsRouter from './routes/metrics.js';
 const app = express();
 
 app.use(cors({
@@ -31,7 +31,7 @@ app.use('/api/repos', repoRoutes);
 app.use('/api/qa', qaRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/evals', evalRoutes);
-
+app.use('/api/metrics', metricsRouter);
 app.get('/api/health', (req, res) => {
   res.json({ status: 'CodeSense backend running' });
 });

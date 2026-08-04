@@ -5,6 +5,7 @@ import EvalCase from '../models/EvalCase.js';
 import Repo from '../models/Repo.js';
 import { embedText } from '../utils/embeddings.js';
 import { searchChunks } from '../utils/vectorStore.js';
+import { trackedGroqCall } from '../utils/trackedGroqCall.js'; // NEW
 
 const router = express.Router();
 
@@ -40,6 +41,7 @@ router.post('/run', verifyToken, async (req, res) => {
 const runEvals = async () => {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   const TOP_K = 8;
+  const PROMPT_VERSION = 'v1.0'; // NEW (Fix 2) — bump manually when review/scoring prompt wording changes
 
   const isRelevant = (chunk, relevantFiles, relevantFunctions) => {
     const chunkFile = chunk.file_path?.toLowerCase() || '';
@@ -94,6 +96,7 @@ const runEvals = async () => {
 
       evalCase.results.push({
         runAt: new Date(),
+        promptVersion: PROMPT_VERSION, // NEW (Fix 2)
         precision,
         recall,
         notes: `topK=${TOP_K} — triggered from dashboard`,
@@ -115,19 +118,21 @@ const runEvals = async () => {
     total: reviewCases.length,
   };
 
-  const repo = await Repo.findOne({
-    fullName: reviewCases[0]?.review?.repoFullName,
-  }).select('_id');
-  const repoIdStr = repo?._id?.toString();
+  // REMOVED (Fix 1) — repo lookup no longer hoisted out of the loop using only reviewCases[0].
+  // It's now resolved per-case inside the loop below, using each case's own repoFullName.
 
   for (let i = 0; i < reviewCases.length; i++) {
     const evalCase = reviewCases[i];
-    const { prTitle, diff, groundTruth } = evalCase.review;
+    const { prTitle, diff, groundTruth, repoFullName } = evalCase.review; // added repoFullName
 
     evalProgress.step = `Review ${i + 1}/${reviewCases.length}: "${prTitle.slice(0, 40)}..."`;
     evalProgress.progress = i + 1;
 
     try {
+      // NEW (Fix 1) — per-case repo lookup instead of reviewCases[0]
+      const repo = await Repo.findOne({ fullName: repoFullName }).select('_id');
+      const repoIdStr = repo?._id?.toString();
+
       // Generate review
       const queryEmbedding = await embedText(prTitle);
       const chunks = await searchChunks(queryEmbedding, repoIdStr, 4);
@@ -137,11 +142,19 @@ const runEvals = async () => {
         )
         .join('\n\n');
 
-      const generateCompletion = await groq.chat.completions.create({
+      // CHANGED — wrapped with trackedGroqCall (cost/latency logging), prompt content unchanged
+      const { response: generateCompletion } = await trackedGroqCall({
+        context: 'eval_run',
+        callKind: 'generate',
+        repoFullName,
+        evalCaseId: evalCase._id,
         model: 'llama-3.3-70b-versatile',
-        messages: [{
-          role: 'user',
-          content: `You are CodeSense, an expert code reviewer. Review this PR diff.
+        promptVersion: PROMPT_VERSION,
+        callFn: () => groq.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{
+            role: 'user',
+            content: `You are CodeSense, an expert code reviewer. Review this PR diff.
 
 PR: "${prTitle}"
 Codebase context:
@@ -153,19 +166,27 @@ ${diff}
 \`\`\`
 
 Write a concise review in markdown. Include verdict: APPROVE / REQUEST_CHANGES / COMMENT`,
-        }],
-        temperature: 0.1,
-        max_tokens: 800,
+          }],
+          temperature: 0.1,
+          max_tokens: 800,
+        }),
       });
 
       const generatedReview = generateCompletion.choices[0].message.content;
 
-      // Score it
-      const scoreCompletion = await groq.chat.completions.create({
+      // Score it — CHANGED — wrapped with trackedGroqCall, prompt content unchanged
+      const { response: scoreCompletion } = await trackedGroqCall({
+        context: 'eval_run',
+        callKind: 'score',
+        repoFullName,
+        evalCaseId: evalCase._id,
         model: 'llama-3.3-70b-versatile',
-        messages: [{
-          role: 'user',
-          content: `Score this code review on 5 dimensions (0-10 each).
+        promptVersion: PROMPT_VERSION,
+        callFn: () => groq.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{
+            role: 'user',
+            content: `Score this code review on 5 dimensions (0-10 each).
 
 Ground Truth issues: ${groundTruth.shouldCatch.join(', ')}
 Expected verdict: ${groundTruth.expectedVerdict}
@@ -175,9 +196,10 @@ ${generatedReview}
 
 Return ONLY JSON:
 {"caughtRealIssues":7,"falsePositives":8,"specificity":6,"actionability":7,"verdictCorrect":10,"reasoning":"brief explanation"}`,
-        }],
-        temperature: 0.1,
-        max_tokens: 256,
+          }],
+          temperature: 0.1,
+          max_tokens: 256,
+        }),
       });
 
       const scoreContent = scoreCompletion.choices[0].message.content
@@ -194,6 +216,7 @@ Return ONLY JSON:
 
       evalCase.results.push({
         runAt: new Date(),
+        promptVersion: PROMPT_VERSION, // NEW (Fix 2)
         rubricScores: {
           caughtRealIssues: scores.caughtRealIssues,
           falsePositives: scores.falsePositives,

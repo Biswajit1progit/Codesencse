@@ -43,6 +43,10 @@ const repoSchema = new mongoose.Schema(
       skippedFiles: { type: Number, default: 0 },
       lastFullIngest: { type: Date },
     },
+    questionCount: {
+  type: Number,
+  default: 0,
+},
   },
   { timestamps: true }
 );

@@ -184,12 +184,15 @@ const Dashboard = () => {
   const filteredRepos = githubRepos.filter((r) =>
     r.fullName.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const updatedStats = stats.map((s) => {
-    if (s.label === 'Repos Connected') return { ...s, value: String(connectedRepos.length) };
-    if (s.label === 'PRs Reviewed') return { ...s, value: String(recentReviews.length) };
-    return s;
-  });
+const updatedStats = stats.map((s) => {
+  if (s.label === 'Repos Connected') return { ...s, value: String(connectedRepos.length) };
+  if (s.label === 'PRs Reviewed') return { ...s, value: String(recentReviews.length) };
+  if (s.label === 'Questions Asked') return {
+    ...s,
+    value: String(connectedRepos.reduce((sum, r) => sum + (r.questionCount || 0), 0))
+  };
+  return s;
+});
 
   const verdictColor = (verdict) => {
     if (verdict === 'APPROVE') return 'bg-green-500/10 border-green-500/20 text-green-400';
@@ -216,11 +219,11 @@ const Dashboard = () => {
       <div className="absolute bottom-[-100px] left-[-100px] w-[300px] h-[300px] md:w-[500px] md:h-[500px] bg-violet-600/8 rounded-full blur-3xl pointer-events-none" />
 
       {/* Navbar */}
-      <motion.nav
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="flex items-center justify-between px-4 md:px-8 py-4 md:py-5 border-b border-white/5 backdrop-blur-sm"
-      >
+          <motion.nav
+               initial={{ y: -20, opacity: 0 }}
+  animate={{ y: 0, opacity: 1 }}
+  className="sticky top-0 z-50 flex items-center justify-between px-4 md:px-8 py-4 md:py-5 border-b border-white/5 backdrop-blur-md bg-[#020817]/80"
+           >
         <div className="flex items-center gap-2">
           <span className="text-xl md:text-2xl">⚡</span>
           <span className="text-lg md:text-xl font-bold tracking-tight">CodeSense</span>

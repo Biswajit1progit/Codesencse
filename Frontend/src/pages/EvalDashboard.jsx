@@ -17,6 +17,7 @@ const MetricCard = ({ label, value, unit = '', color = 'blue', delay = 0 }) => (
       color === 'blue' ? 'text-blue-400' :
       color === 'violet' ? 'text-violet-400' :
       color === 'orange' ? 'text-orange-400' :
+      color === 'pink' ? 'text-pink-400' :
       'text-white'
     }`}>
       {typeof value === 'number' ? value.toFixed(1) : value}{unit}
@@ -73,6 +74,21 @@ const RubricBar = ({ label, value, delay = 0 }) => (
   </motion.div>
 );
 
+// NEW — simple daily trend list for cost tab (no charting lib needed, matches existing BarChart aesthetic)
+const CostTrendRow = ({ day, reviews, avgLatencyMs, dailyCostUsd, delay = 0 }) => (
+  <motion.div
+    initial={{ opacity: 0, x: -10 }}
+    animate={{ opacity: 1, x: 0 }}
+    transition={{ delay }}
+    className="flex items-center justify-between bg-white/[0.02] border border-white/[0.05] rounded-xl px-4 py-3"
+  >
+    <span className="text-xs text-slate-300 w-24 shrink-0">{day}</span>
+    <span className="text-[10px] text-slate-500">{reviews} calls</span>
+    <span className="text-xs text-blue-400">{avgLatencyMs?.toFixed(0)}ms avg</span>
+    <span className="text-xs text-green-400">${dailyCostUsd?.toFixed(4)}</span>
+  </motion.div>
+);
+
 const EvalDashboard = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -80,6 +96,10 @@ const EvalDashboard = () => {
   const [cases, setCases] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
   const [activeTab, setActiveTab] = useState('retrieval');
+
+  // NEW — cost/latency state
+  const [costSummary, setCostSummary] = useState(null);
+  const [costTrend, setCostTrend] = useState([]);
 
   // Run evals state
   const [evalRunning, setEvalRunning] = useState(false);
@@ -93,12 +113,17 @@ const EvalDashboard = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [summaryRes, casesRes] = await Promise.all([
+        // CHANGED — added the two metrics calls alongside the existing two, all in one Promise.all
+        const [summaryRes, casesRes, costSummaryRes, costTrendRes] = await Promise.all([
           apiClient.get('/evals/summary'),
           apiClient.get('/evals/cases'),
+          apiClient.get('/metrics/summary'), // NEW
+          apiClient.get('/metrics/trend'),   // NEW
         ]);
         setSummary(summaryRes.data);
         setCases(casesRes.data.cases);
+        setCostSummary(costSummaryRes.data); // NEW
+        setCostTrend(costTrendRes.data);     // NEW
       } catch (err) {
         console.error('Failed to fetch eval data:', err.message);
       } finally {
@@ -128,12 +153,17 @@ const EvalDashboard = () => {
             setEvalProgress({ progress: 0, total: 0 });
 
             // Refresh data after eval completes
-            const [summaryRes, casesRes] = await Promise.all([
+            // CHANGED — also refresh cost data since a run just generated new metric rows
+            const [summaryRes, casesRes, costSummaryRes, costTrendRes] = await Promise.all([
               apiClient.get('/evals/summary'),
               apiClient.get('/evals/cases'),
+              apiClient.get('/metrics/summary'), // NEW
+              apiClient.get('/metrics/trend'),   // NEW
             ]);
             setSummary(summaryRes.data);
             setCases(casesRes.data.cases);
+            setCostSummary(costSummaryRes.data); // NEW
+            setCostTrend(costTrendRes.data);     // NEW
           }
         } catch {
           clearInterval(poll);
@@ -150,12 +180,17 @@ const EvalDashboard = () => {
 
   const refreshData = async () => {
     try {
-      const [summaryRes, casesRes] = await Promise.all([
+      // CHANGED — also refresh cost data on manual refresh
+      const [summaryRes, casesRes, costSummaryRes, costTrendRes] = await Promise.all([
         apiClient.get('/evals/summary'),
         apiClient.get('/evals/cases'),
+        apiClient.get('/metrics/summary'), // NEW
+        apiClient.get('/metrics/trend'),   // NEW
       ]);
       setSummary(summaryRes.data);
       setCases(casesRes.data.cases);
+      setCostSummary(costSummaryRes.data); // NEW
+      setCostTrend(costTrendRes.data);     // NEW
     } catch (err) {
       console.error('Failed to refresh:', err.message);
     }
@@ -279,7 +314,8 @@ const EvalDashboard = () => {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6">
-          {['retrieval', 'review', 'cases'].map((tab) => (
+          {/* CHANGED — added 'cost' to the tab list, nothing else changed in this array/loop */}
+          {['retrieval', 'review', 'cost', 'cases'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -291,6 +327,7 @@ const EvalDashboard = () => {
             >
               {tab === 'retrieval' ? '🔍 Retrieval' :
                tab === 'review' ? '🤖 Review Quality' :
+               tab === 'cost' ? '💰 Cost & Latency' : // NEW
                '📋 All Cases'}
             </button>
           ))}
@@ -440,6 +477,68 @@ const EvalDashboard = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* NEW — Cost & Latency tab */}
+        {activeTab === 'cost' && (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <MetricCard
+                label="Total Calls"
+                value={costSummary?.totalCalls || 0}
+                color="blue"
+                delay={0.05}
+              />
+              <MetricCard
+                label="Avg Latency"
+                value={costSummary?.avgLatencyMs || 0}
+                unit="ms"
+                color="orange"
+                delay={0.1}
+              />
+              <MetricCard
+                label="Total Cost"
+                value={costSummary?.totalCostUsd || 0}
+                unit=" USD"
+                color="green"
+                delay={0.15}
+              />
+              <MetricCard
+                label="Total Tokens"
+                value={(costSummary?.totalInputTokens || 0) + (costSummary?.totalOutputTokens || 0)}
+                color="pink"
+                delay={0.2}
+              />
+            </div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-6"
+            >
+              <h2 className="text-sm font-semibold text-white mb-1">Daily Trend</h2>
+              <p className="text-xs text-slate-500 mb-5">
+                Groq calls, avg latency, and spend per day (last 30 days)
+              </p>
+              <div className="flex flex-col gap-2">
+                {costTrend.length === 0 ? (
+                  <p className="text-xs text-slate-500">No calls logged yet — run an eval to populate this.</p>
+                ) : (
+                  costTrend.map((row, i) => (
+                    <CostTrendRow
+                      key={row._id}
+                      day={row._id}
+                      reviews={row.reviews}
+                      avgLatencyMs={row.avgLatencyMs}
+                      dailyCostUsd={row.dailyCostUsd}
+                      delay={i * 0.03}
+                    />
+                  ))
+                )}
               </div>
             </motion.div>
           </div>

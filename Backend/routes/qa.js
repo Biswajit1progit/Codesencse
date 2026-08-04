@@ -73,7 +73,10 @@ Question: ${question}`,
     });
 
     const answer = completion.choices[0].message.content;
-
+   // After generating answer, increment question count
+await Repo.findByIdAndUpdate(repoId, {
+  $inc: { questionCount: 1 }
+});
     res.json({
       answer,
       sources: relevantChunks.map((chunk) => ({

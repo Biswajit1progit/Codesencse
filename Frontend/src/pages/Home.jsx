@@ -25,23 +25,23 @@ const features = [
 
 const Home = () => {
   const handleGithubLogin = () => {
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-    window.location.href = `${apiUrl.replace('/api', '')}/api/auth/github`;
+    const base = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+    window.location.href = `${base}/api/auth/github`;
   };
 
   return (
     <div className="min-h-screen bg-[#020817] text-white overflow-x-hidden relative">
 
-      {/* Background blobs — smaller on mobile */}
+      {/* Background blobs */}
       <div className="absolute top-[-100px] left-[-100px] w-[300px] h-[300px] md:w-[600px] md:h-[600px] bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-[-100px] right-[-100px] w-[300px] h-[300px] md:w-[600px] md:h-[600px] bg-violet-600/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Navbar */}
+      {/* Sticky Navbar */}
       <motion.nav
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className="flex items-center justify-between px-4 md:px-8 py-4 md:py-5 border-b border-white/5 backdrop-blur-sm"
+        className="sticky top-0 z-50 flex items-center justify-between px-4 md:px-8 py-4 md:py-5 border-b border-white/5 backdrop-blur-md bg-[#020817]/80"
       >
         <div className="flex items-center gap-2">
           <span className="text-xl md:text-2xl">⚡</span>
@@ -132,6 +132,25 @@ const Home = () => {
             <p className="text-slate-400 text-xs md:text-sm leading-relaxed">{f.desc}</p>
           </motion.div>
         ))}
+      </div>
+
+      {/* Minimal bottom bar instead of footer */}
+      <div className="border-t border-white/5 py-6 px-4 flex items-center justify-between max-w-5xl mx-auto">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">⚡</span>
+          <span className="text-sm font-semibold text-slate-400">CodeSense</span>
+        </div>
+        <p className="text-xs text-slate-600">
+          Built by{' '}
+          
+           <a href="https://github.com/Biswajit1progit"
+            target="_blank"
+            rel="noreferrer"
+            className="text-slate-400 hover:text-white transition-all"
+          >
+            Biswajit1progit
+          </a>
+        </p>
       </div>
     </div>
   );

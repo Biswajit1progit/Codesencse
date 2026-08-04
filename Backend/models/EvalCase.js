@@ -31,10 +31,30 @@ const evalCaseSchema = new mongoose.Schema(
         expectedVerdict: String, // APPROVE / REQUEST_CHANGES / COMMENT
       },
     },
+        // NEW — difficulty and category for better analysis
+    difficulty: {
+      type: String,
+      enum: ['easy', 'medium', 'hard'],
+      default: 'medium',
+    },
+    category: {
+      type: String,
+      enum: [
+        'auth', 'security', 'performance', 'style',
+        'bug', 'refactor', 'multi-file', 'edge-case',
+        'booking', 'payment', 'hotel', 'review', 'notification',
+      ],
+      default: 'bug',
+    },
+
 
     // Scores from running the eval
     results: [{
       runAt: Date,
+       promptVersion: {
+        type: String,
+        default: 'v1.0',
+      },
       // Retrieval scores
       precision: Number,       // % of returned chunks that are relevant
       recall: Number,          // % of relevant chunks that were returned
