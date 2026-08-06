@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 
 const reviewMetricSchema = new mongoose.Schema(
   {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // NEW
     context: { type: String, enum: ['pr_review', 'eval_run'], required: true },
     repoFullName: String,
     prNumber: Number,
@@ -19,5 +20,7 @@ const reviewMetricSchema = new mongoose.Schema(
 
 reviewMetricSchema.index({ createdAt: -1 });
 reviewMetricSchema.index({ repoFullName: 1 });
+reviewMetricSchema.index({ userId: 1 }); // NEW
+
 
 export default mongoose.model('ReviewMetric', reviewMetricSchema);

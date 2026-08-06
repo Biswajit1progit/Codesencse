@@ -7,7 +7,7 @@ const router = express.Router();
 router.get('/summary', verifyToken, async (req, res) => {
   const days = parseInt(req.query.days) || 30;
   const context = req.query.context;
-  const match = { createdAt: { $gte: new Date(Date.now() - days * 86400000) } };
+  const match = {userId: req.userId, createdAt: { $gte: new Date(Date.now() - days * 86400000) } };
   if (context) match.context = context;
 
   try {
@@ -33,7 +33,7 @@ router.get('/trend', verifyToken, async (req, res) => {
 
   try {
     const trend = await ReviewMetric.aggregate([
-      { $match: { createdAt: { $gte: new Date(Date.now() - days * 86400000) } } },
+      { $match: { userId: req.userId, createdAt: { $gte: new Date(Date.now() - days * 86400000) } } },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },

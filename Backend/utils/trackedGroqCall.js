@@ -1,8 +1,7 @@
 import ReviewMetric from '../models/ReviewMetric.js';
 
-// Verify against console.groq.com/settings/billing — rates change.
 const PRICING = {
-  'llama-3.3-70b-versatile': { input: 0.59, output: 0.79 }, // USD per 1M tokens
+  'llama-3.3-70b-versatile': { input: 0.59, output: 0.79 },
 };
 
 function estimateCost(model, inputTokens, outputTokens) {
@@ -13,6 +12,7 @@ function estimateCost(model, inputTokens, outputTokens) {
 export async function trackedGroqCall(opts) {
   const {
     context,
+    userId = null, // NEW
     repoFullName = null,
     prNumber = null,
     evalCaseId = null,
@@ -32,7 +32,7 @@ export async function trackedGroqCall(opts) {
 
   try {
     await ReviewMetric.create({
-      context, repoFullName, prNumber, evalCaseId, callKind,
+      userId, context, repoFullName, prNumber, evalCaseId, callKind, // CHANGED — added userId
       model, inputTokens, outputTokens, latencyMs, costEstimateUsd, promptVersion,
     });
   } catch (err) {

@@ -19,7 +19,7 @@ router.get('/status', verifyToken, (req, res) => {
 });
 
 // POST /api/evals/run — trigger full eval run from dashboard
-router.post('/run', verifyToken, async (req, res) => {
+/* router.post('/run', verifyToken, async (req, res) => {
   if (evalRunning) {
     return res.status(409).json({ message: 'Eval already running' });
   }
@@ -36,9 +36,28 @@ router.post('/run', verifyToken, async (req, res) => {
     evalProgress = { status: 'failed', step: err.message, progress: 0, total: 0 };
     evalRunning = false;
   });
+}); */
+
+router.post('/run', verifyToken, async (req, res) => {
+  if (evalRunning) {
+    return res.status(409).json({ message: 'Eval already running' });
+  }
+
+  const triggeredByUserId = req.userId; // NEW — capture before responding, since runEvals() is async/detached
+
+  res.json({ message: 'Eval started', status: 'running' });
+
+  evalRunning = true;
+  evalProgress = { status: 'running', step: 'Starting...', progress: 0, total: 0 };
+
+  runEvals(triggeredByUserId).catch((err) => { // CHANGED — pass userId through
+    console.error('Eval run error:', err.message);
+    evalProgress = { status: 'failed', step: err.message, progress: 0, total: 0 };
+    evalRunning = false;
+  });
 });
 
-const runEvals = async () => {
+const runEvals = async (triggeredByUserId) => {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   const TOP_K = 8;
   const PROMPT_VERSION = 'v1.0'; // NEW (Fix 2) — bump manually when review/scoring prompt wording changes
@@ -145,6 +164,7 @@ const runEvals = async () => {
       // CHANGED — wrapped with trackedGroqCall (cost/latency logging), prompt content unchanged
       const { response: generateCompletion } = await trackedGroqCall({
         context: 'eval_run',
+        userId: triggeredByUserId, // NEW
         callKind: 'generate',
         repoFullName,
         evalCaseId: evalCase._id,
@@ -178,6 +198,7 @@ Write a concise review in markdown. Include verdict: APPROVE / REQUEST_CHANGES /
       const { response: scoreCompletion } = await trackedGroqCall({
         context: 'eval_run',
         callKind: 'score',
+         userId: triggeredByUserId, // NEW
         repoFullName,
         evalCaseId: evalCase._id,
         model: 'llama-3.3-70b-versatile',
