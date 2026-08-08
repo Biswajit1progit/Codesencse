@@ -4,26 +4,6 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../api/apiClient';
 
-/* const MetricCard = ({ label, value, unit = '', color = 'blue', delay = 0 }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ delay }}
-    className="bg-white/[0.03] backdrop-blur-sm border border-white/[0.07] rounded-2xl p-5"
-  >
-    <p className="text-xs text-slate-500 mb-2">{label}</p>
-    <p className={`text-3xl font-bold ${
-      color === 'green' ? 'text-green-400' :
-      color === 'blue' ? 'text-blue-400' :
-      color === 'violet' ? 'text-violet-400' :
-      color === 'orange' ? 'text-orange-400' :
-      color === 'pink' ? 'text-pink-400' :
-      'text-white'
-    }`}>
-      {typeof value === 'number' ? value.toFixed(1) : value}{unit}
-    </p>
-  </motion.div>
-); */
 const MetricCard = ({ label, value, unit = '', color = 'blue', delay = 0, decimals = 1 }) => (
   <motion.div
     initial={{ opacity: 0, y: 20 }}
@@ -44,6 +24,7 @@ const MetricCard = ({ label, value, unit = '', color = 'blue', delay = 0, decima
     </p>
   </motion.div>
 );
+
 const BarChart = ({ data, valueKey, labelKey, color = '#3b82f6', max = 1 }) => {
   if (!data || data.length === 0) return null;
   return (
@@ -93,7 +74,6 @@ const RubricBar = ({ label, value, delay = 0 }) => (
   </motion.div>
 );
 
-// NEW — simple daily trend list for cost tab (no charting lib needed, matches existing BarChart aesthetic)
 const CostTrendRow = ({ day, reviews, avgLatencyMs, dailyCostUsd, delay = 0 }) => (
   <motion.div
     initial={{ opacity: 0, x: -10 }}
@@ -108,6 +88,22 @@ const CostTrendRow = ({ day, reviews, avgLatencyMs, dailyCostUsd, delay = 0 }) =
   </motion.div>
 );
 
+// NEW — one row per prompt version, used in the Versions tab
+const VersionRow = ({ version, runs, children, delay = 0 }) => (
+  <motion.div
+    initial={{ opacity: 0, x: -10 }}
+    animate={{ opacity: 1, x: 0 }}
+    transition={{ delay }}
+    className="flex items-center justify-between bg-white/[0.02] border border-white/[0.05] rounded-xl px-4 py-3"
+  >
+    <span className="text-xs text-white font-mono w-16 shrink-0">{version}</span>
+    <span className="text-[10px] text-slate-500 w-14 shrink-0">{runs} runs</span>
+    <div className="flex items-center gap-4 flex-1 justify-end">
+      {children}
+    </div>
+  </motion.div>
+);
+
 const EvalDashboard = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -116,11 +112,12 @@ const EvalDashboard = () => {
   const [loadingData, setLoadingData] = useState(true);
   const [activeTab, setActiveTab] = useState('retrieval');
 
-  // NEW — cost/latency state
   const [costSummary, setCostSummary] = useState(null);
   const [costTrend, setCostTrend] = useState([]);
 
-  // Run evals state
+  // NEW — versions state
+  const [versions, setVersions] = useState({ retrievalVersions: [], reviewVersions: [] });
+
   const [evalRunning, setEvalRunning] = useState(false);
   const [evalStep, setEvalStep] = useState('');
   const [evalProgress, setEvalProgress] = useState({ progress: 0, total: 0 });
@@ -132,17 +129,19 @@ const EvalDashboard = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // CHANGED — added the two metrics calls alongside the existing two, all in one Promise.all
-        const [summaryRes, casesRes, costSummaryRes, costTrendRes] = await Promise.all([
+        // CHANGED — added versions call
+        const [summaryRes, casesRes, costSummaryRes, costTrendRes, versionsRes] = await Promise.all([
           apiClient.get('/evals/summary'),
           apiClient.get('/evals/cases'),
-          apiClient.get('/metrics/summary'), // NEW
-          apiClient.get('/metrics/trend'),   // NEW
+          apiClient.get('/metrics/summary'),
+          apiClient.get('/metrics/trend'),
+          apiClient.get('/evals/versions'), // NEW
         ]);
         setSummary(summaryRes.data);
         setCases(casesRes.data.cases);
-        setCostSummary(costSummaryRes.data); // NEW
-        setCostTrend(costTrendRes.data);     // NEW
+        setCostSummary(costSummaryRes.data);
+        setCostTrend(costTrendRes.data);
+        setVersions(versionsRes.data); // NEW
       } catch (err) {
         console.error('Failed to fetch eval data:', err.message);
       } finally {
@@ -158,7 +157,6 @@ const EvalDashboard = () => {
       setEvalStep('Starting...');
       await apiClient.post('/evals/run');
 
-      // Poll for progress every 3 seconds
       const poll = setInterval(async () => {
         try {
           const { data } = await apiClient.get('/evals/status');
@@ -171,18 +169,19 @@ const EvalDashboard = () => {
             setEvalStep('');
             setEvalProgress({ progress: 0, total: 0 });
 
-            // Refresh data after eval completes
-            // CHANGED — also refresh cost data since a run just generated new metric rows
-            const [summaryRes, casesRes, costSummaryRes, costTrendRes] = await Promise.all([
+            // CHANGED — added versions refresh
+            const [summaryRes, casesRes, costSummaryRes, costTrendRes, versionsRes] = await Promise.all([
               apiClient.get('/evals/summary'),
               apiClient.get('/evals/cases'),
-              apiClient.get('/metrics/summary'), // NEW
-              apiClient.get('/metrics/trend'),   // NEW
+              apiClient.get('/metrics/summary'),
+              apiClient.get('/metrics/trend'),
+              apiClient.get('/evals/versions'), // NEW
             ]);
             setSummary(summaryRes.data);
             setCases(casesRes.data.cases);
-            setCostSummary(costSummaryRes.data); // NEW
-            setCostTrend(costTrendRes.data);     // NEW
+            setCostSummary(costSummaryRes.data);
+            setCostTrend(costTrendRes.data);
+            setVersions(versionsRes.data); // NEW
           }
         } catch {
           clearInterval(poll);
@@ -199,17 +198,19 @@ const EvalDashboard = () => {
 
   const refreshData = async () => {
     try {
-      // CHANGED — also refresh cost data on manual refresh
-      const [summaryRes, casesRes, costSummaryRes, costTrendRes] = await Promise.all([
+      // CHANGED — added versions refresh
+      const [summaryRes, casesRes, costSummaryRes, costTrendRes, versionsRes] = await Promise.all([
         apiClient.get('/evals/summary'),
         apiClient.get('/evals/cases'),
-        apiClient.get('/metrics/summary'), // NEW
-        apiClient.get('/metrics/trend'),   // NEW
+        apiClient.get('/metrics/summary'),
+        apiClient.get('/metrics/trend'),
+        apiClient.get('/evals/versions'), // NEW
       ]);
       setSummary(summaryRes.data);
       setCases(casesRes.data.cases);
-      setCostSummary(costSummaryRes.data); // NEW
-      setCostTrend(costTrendRes.data);     // NEW
+      setCostSummary(costSummaryRes.data);
+      setCostTrend(costTrendRes.data);
+      setVersions(versionsRes.data); // NEW
     } catch (err) {
       console.error('Failed to refresh:', err.message);
     }
@@ -235,7 +236,6 @@ const EvalDashboard = () => {
 
       <div className="absolute top-[-100px] right-[-100px] w-[400px] h-[400px] bg-violet-600/8 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Navbar */}
       <motion.nav
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -261,7 +261,6 @@ const EvalDashboard = () => {
 
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
 
-        {/* Header with Run Evals button */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -299,7 +298,6 @@ const EvalDashboard = () => {
           </motion.button>
         </motion.div>
 
-        {/* Top metrics */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
           <MetricCard
             label="Avg Precision@8"
@@ -331,10 +329,9 @@ const EvalDashboard = () => {
           />
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-2 mb-6">
-          {/* CHANGED — added 'cost' to the tab list, nothing else changed in this array/loop */}
-          {['retrieval', 'review', 'cost', 'cases'].map((tab) => (
+          {/* CHANGED — added 'versions' to the tab list */}
+          {['retrieval', 'review', 'cost', 'versions', 'cases'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -346,13 +343,13 @@ const EvalDashboard = () => {
             >
               {tab === 'retrieval' ? '🔍 Retrieval' :
                tab === 'review' ? '🤖 Review Quality' :
-               tab === 'cost' ? '💰 Cost & Latency' : // NEW
+               tab === 'cost' ? '💰 Cost & Latency' :
+               tab === 'versions' ? '📈 Versions' : // NEW
                '📋 All Cases'}
             </button>
           ))}
         </div>
 
-        {/* Retrieval tab */}
         {activeTab === 'retrieval' && (
           <div className="flex flex-col gap-4">
             <motion.div
@@ -437,7 +434,6 @@ const EvalDashboard = () => {
           </div>
         )}
 
-        {/* Review quality tab */}
         {activeTab === 'review' && (
           <div className="flex flex-col gap-4">
             <motion.div
@@ -501,7 +497,6 @@ const EvalDashboard = () => {
           </div>
         )}
 
-        {/* NEW — Cost & Latency tab */}
         {activeTab === 'cost' && (
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -519,13 +514,13 @@ const EvalDashboard = () => {
                 delay={0.1}
               />
               <MetricCard
-               label="Total Cost"
-  value={costSummary?.totalCostUsd || 0}
-  unit=" USD"
-  color="green"
-  delay={0.15}
-                decimals={4} // NEW
-                />
+                label="Total Cost"
+                value={costSummary?.totalCostUsd || 0}
+                unit=" USD"
+                color="green"
+                delay={0.15}
+                decimals={4}
+              />
               <MetricCard
                 label="Total Tokens"
                 value={(costSummary?.totalInputTokens || 0) + (costSummary?.totalOutputTokens || 0)}
@@ -564,7 +559,58 @@ const EvalDashboard = () => {
           </div>
         )}
 
-        {/* All cases tab */}
+        {/* NEW — Versions tab */}
+        {activeTab === 'versions' && (
+          <div className="flex flex-col gap-4">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-6"
+            >
+              <h2 className="text-sm font-semibold text-white mb-1">Retrieval — By Prompt Version</h2>
+              <p className="text-xs text-slate-500 mb-5">
+                Aggregated across every run ever recorded per version
+              </p>
+              <div className="flex flex-col gap-2">
+                {versions.retrievalVersions.length === 0 ? (
+                  <p className="text-xs text-slate-500">No versioned runs yet.</p>
+                ) : (
+                  versions.retrievalVersions.map((v, i) => (
+                    <VersionRow key={v.version} version={v.version} runs={v.runs} delay={i * 0.05}>
+                      <span className="text-xs text-blue-400">P: {(v.avgPrecision * 100).toFixed(1)}%</span>
+                      <span className="text-xs text-green-400">R: {(v.avgRecall * 100).toFixed(1)}%</span>
+                    </VersionRow>
+                  ))
+                )}
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-6"
+            >
+              <h2 className="text-sm font-semibold text-white mb-1">Review — By Prompt Version</h2>
+              <p className="text-xs text-slate-500 mb-5">
+                Aggregated across every run ever recorded per version
+              </p>
+              <div className="flex flex-col gap-2">
+                {versions.reviewVersions.length === 0 ? (
+                  <p className="text-xs text-slate-500">No versioned runs yet.</p>
+                ) : (
+                  versions.reviewVersions.map((v, i) => (
+                    <VersionRow key={v.version} version={v.version} runs={v.runs} delay={i * 0.05}>
+                      <span className="text-xs text-violet-400">{v.avgOverallScore.toFixed(1)}/10</span>
+                      <span className="text-xs text-orange-400">Verdict: {v.rubricAvgs.verdictCorrect.toFixed(1)}/10</span>
+                    </VersionRow>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {activeTab === 'cases' && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}

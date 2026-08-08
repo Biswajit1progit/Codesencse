@@ -368,5 +368,80 @@ router.get('/cases', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch eval cases' });
   }
 });
+ 
+// GET /api/evals/versions — compare metrics across all promptVersions ever run
+router.get('/versions', verifyToken, async (req, res) => {
+  try {
+    const retrievalCases = await EvalCase.find({ type: 'retrieval' });
+    const reviewCases = await EvalCase.find({ type: 'review' });
+
+    // Flatten every result from every case into one list, tagged by version
+    const retrievalByVersion = {};
+    for (const evalCase of retrievalCases) {
+      for (const result of evalCase.results || []) {
+        const v = result.promptVersion || 'unversioned';
+        if (!retrievalByVersion[v]) retrievalByVersion[v] = { precisions: [], recalls: [], runs: 0, lastRunAt: null };
+        retrievalByVersion[v].precisions.push(result.precision || 0);
+        retrievalByVersion[v].recalls.push(result.recall || 0);
+        retrievalByVersion[v].runs++;
+        if (!retrievalByVersion[v].lastRunAt || result.runAt > retrievalByVersion[v].lastRunAt) {
+          retrievalByVersion[v].lastRunAt = result.runAt;
+        }
+      }
+    }
+
+    const reviewByVersion = {};
+    for (const evalCase of reviewCases) {
+      for (const result of evalCase.results || []) {
+        const v = result.promptVersion || 'unversioned';
+        if (!reviewByVersion[v]) {
+          reviewByVersion[v] = {
+            overallScores: [],
+            rubric: { caughtRealIssues: [], falsePositives: [], specificity: [], actionability: [], verdictCorrect: [] },
+            runs: 0,
+            lastRunAt: null,
+          };
+        }
+        reviewByVersion[v].overallScores.push(result.overallScore || 0);
+        for (const key of Object.keys(reviewByVersion[v].rubric)) {
+          reviewByVersion[v].rubric[key].push(result.rubricScores?.[key] || 0);
+        }
+        reviewByVersion[v].runs++;
+        if (!reviewByVersion[v].lastRunAt || result.runAt > reviewByVersion[v].lastRunAt) {
+          reviewByVersion[v].lastRunAt = result.runAt;
+        }
+      }
+    }
+
+    const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+
+    const retrievalVersions = Object.entries(retrievalByVersion).map(([version, data]) => ({
+      version,
+      runs: data.runs,
+      lastRunAt: data.lastRunAt,
+      avgPrecision: avg(data.precisions),
+      avgRecall: avg(data.recalls),
+    })).sort((a, b) => new Date(a.lastRunAt) - new Date(b.lastRunAt));
+
+    const reviewVersions = Object.entries(reviewByVersion).map(([version, data]) => ({
+      version,
+      runs: data.runs,
+      lastRunAt: data.lastRunAt,
+      avgOverallScore: avg(data.overallScores),
+      rubricAvgs: {
+        caughtRealIssues: avg(data.rubric.caughtRealIssues),
+        falsePositives: avg(data.rubric.falsePositives),
+        specificity: avg(data.rubric.specificity),
+        actionability: avg(data.rubric.actionability),
+        verdictCorrect: avg(data.rubric.verdictCorrect),
+      },
+    })).sort((a, b) => new Date(a.lastRunAt) - new Date(b.lastRunAt));
+
+    res.json({ retrievalVersions, reviewVersions });
+  } catch (err) {
+    console.error('Eval versions error:', err.message);
+    res.status(500).json({ message: 'Failed to fetch version comparison' });
+  }
+});
 
 export default router;
