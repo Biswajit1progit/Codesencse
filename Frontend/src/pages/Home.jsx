@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react'; // NEW
 
 const features = [
   {
@@ -24,6 +25,16 @@ const features = [
 ];
 
 const Home = () => {
+  // NEW — detect if the user just arrived from a GitHub App install redirect
+  const [justInstalled, setJustInstalled] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('setup_action') === 'install') {
+      setJustInstalled(true);
+    }
+  }, []);
+
   const handleGithubLogin = () => {
     const base = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
     window.location.href = `${base}/api/auth/github`;
@@ -58,6 +69,20 @@ const Home = () => {
           <span className="sm:hidden">Sign in</span>
         </motion.button>
       </motion.nav>
+
+      {/* NEW — contextual banner shown only when arriving from a GitHub App install */}
+      {justInstalled && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="max-w-3xl mx-auto mt-6 px-4"
+        >
+          <div className="bg-blue-500/10 border border-blue-500/20 text-blue-300 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+            <span>✅</span>
+            <span>GitHub App installed! Sign in below to connect your account and start getting automatic PR reviews.</span>
+          </div>
+        </motion.div>
+      )}
 
       {/* Hero */}
       <div className="flex flex-col items-center justify-center text-center px-4 md:px-6 pt-14 md:pt-24 pb-12 md:pb-16">
