@@ -1,5 +1,3 @@
-# Codesencse
-Agentic AI code reviewer and codebase Q&amp;A assistant. Connects to GitHub repos, parses code at AST/function level using tree-sitter, and runs a multi-step LangGraph agent that autonomously fetches context, runs static analysis, and posts structured PR review comments. Built with Node.js, LangGraph.js, pgvector, and Groq.
 # CodeSense — Agentic AI Code Reviewer & Codebase Q&A
 
 > AI-powered code reviewer that understands your entire codebase — not just the diff.
@@ -18,7 +16,7 @@ A: The refresh token logic is handled in apiClient.js (lines 45-67)
 Sources: function setupInterceptors in apiClient.js · lines 45-67 · 84%
 ```
 
-**Automated PR Review** — posted automatically when PR is opened:
+**Automated PR Review** — posted automatically when PR is opened, now as inline diff-level comments:
 ```
 ## 🤖 CodeSense Review
 
@@ -65,6 +63,14 @@ Verdict: REQUEST_CHANGES
 - **Review history dashboard** — every review stored with verdict, diff stats, chunks used
 - **Agent reasoning trace viewer** — click any review to see PLAN → RETRIEVE → ANALYZE → REVIEW → POST → SAVE with timestamps and color coding
 
+### Week 3 — Eval Harness, Cost Tracking & Public Release
+- **50-case eval harness** — expanded from the initial 20-30 case plan; hand-labeled PRs scored against ground truth to catch regressions in review quality before they ship
+- **`trackedGroqCall` utility** — wraps every LLM call with cost and latency tracking, giving per-review visibility into token spend and response time (foundation for eval-driven prompt tuning)
+- **Inline diff-level PR comments** — reviews now post via GitHub's Reviews API directly on the changed lines, replacing the single summary-comment format
+- **Versioned prompt changelog** — tracks edits to the PLAN/ANALYZE/REVIEW node prompts over time, so eval score changes can be correlated with specific prompt versions
+- **Public GitHub App with self-serve setup** — other users can now install the app and connect their own repos without manual onboarding
+- **Multi-language support (in progress)** — Python parsing via tree-sitter is scoped but not yet shipped; JS/TS parsing remains on Babel
+
 ---
 
 ## Stack
@@ -79,7 +85,7 @@ Verdict: REQUEST_CHANGES
 | Embeddings | Gemini (gemini-embedding-001) | 768d, works within Supabase free tier limits |
 | Agent | LangGraph.js | Explicit state machine, debuggable, visualizable |
 | GitHub | GitHub App + Webhooks + Octokit | Scoped permissions, webhook-driven |
-| Code parsing | @babel/parser + @babel/traverse | Pure JS, no native bindings, cross-platform |
+| Code parsing | @babel/parser + @babel/traverse (JS/TS); tree-sitter (Python, in progress) | Pure JS parsing with no native bindings for JS/TS; tree-sitter being scoped to extend parsing to Python |
 
 ---
 
@@ -100,52 +106,55 @@ Verdict: REQUEST_CHANGES
 │      │ extract function/class/method nodes              │
 │      │ splitLargeChunk (max 80 lines)                   │
 │      ▼                                                  │
-│  Gemini embeddings (768d)                               │
-│      │ 1.5s delay between calls (rate limit)            │
-│      │ retry with exponential backoff on 429            │
+│  Gemini embeddings (768d)                                │
+│      │ 1.5s delay between calls (rate limit)             │
+│      │ retry with exponential backoff on 429             │
 │      ▼                                                  │
-│  Supabase pgvector                                      │
-│      │ hnsw index for cosine similarity                 │
-│      │ indexed by repo_id + user_id                     │
+│  Supabase pgvector                                       │
+│      │ hnsw index for cosine similarity                  │
+│      │ indexed by repo_id + user_id                      │
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────┐
-│                    AGENTIC PR REVIEW                    │
+│                    AGENTIC PR REVIEW                     │
 │                                                         │
-│  GitHub PR opened/synchronized                          │
+│  GitHub PR opened/synchronized                           │
 │      │                                                  │
 │      ▼                                                  │
-│  smee.io (dev) → /api/webhooks/github                  │
-│      │ HMAC-SHA256 signature verified                   │
-│      │ respond 200 immediately                          │
+│  smee.io (dev) → /api/webhooks/github                    │
+│      │ HMAC-SHA256 signature verified                    │
+│      │ respond 200 immediately                           │
 │      ▼                                                  │
-│  fetchPRDetails + fetchPRDiff (Octokit)                │
+│  fetchPRDetails + fetchPRDiff (Octokit)                  │
 │      │                                                  │
 │      ▼                                                  │
-│  LangGraph Agent                                        │
+│  LangGraph Agent                                         │
 │      │                                                  │
-│      ├── PLAN                                           │
-│      │    LLM generates retrieval queries from diff     │
-│      │    extractChangedFunctions from patch            │
+│      ├── PLAN                                            │
+│      │    LLM generates retrieval queries from diff      │
+│      │    extractChangedFunctions from patch             │
+│      │    trackedGroqCall logs cost/latency               │
 │      │                                                  │
-│      ├── RETRIEVE                                       │
-│      │    embedText(query) → pgvector cosine search     │
-│      │    deduplicate across queries                    │
+│      ├── RETRIEVE                                         │
+│      │    embedText(query) → pgvector cosine search       │
+│      │    deduplicate across queries                      │
 │      │                                                  │
-│      ├── ANALYZE                                        │
-│      │    LLM: diff + retrieved context →               │
-│      │    {bugs, security, performance, style}          │
+│      ├── ANALYZE                                          │
+│      │    LLM: diff + retrieved context →                 │
+│      │    {bugs, security, performance, style}            │
+│      │    trackedGroqCall logs cost/latency                │
 │      │                                                  │
-│      ├── REVIEW                                         │
-│      │    LLM: analysis → structured markdown           │
-│      │    verdict: APPROVE/REQUEST_CHANGES/COMMENT      │
+│      ├── REVIEW                                            │
+│      │    LLM: analysis → structured markdown              │
+│      │    verdict: APPROVE/REQUEST_CHANGES/COMMENT          │
 │      │                                                  │
-│      ├── POST                                           │
-│      │    Octokit → GitHub PR comment                   │
+│      ├── POST                                               │
+│      │    Octokit → inline diff-level PR comments             │
+│      │    (GitHub Reviews API)                                │
 │      │                                                  │
-│      └── SAVE                                           │
-│           MongoDB → Review document                     │
-│           full trace + analysis stored                  │
+│      └── SAVE                                                 │
+│           MongoDB → Review document                            │
+│           full trace + analysis + cost/latency stored          │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -156,8 +165,8 @@ Verdict: REQUEST_CHANGES
 **1. GitHub API over git clone for ingestion**
 Git clone on Windows with OpenSSL 3.x causes `SSL_read: decryption failed` on large repos due to TLS record MAC errors. GitHub API via Octokit bypasses this entirely — HTTPS through Node's built-in fetch, no disk writes, stateless operation. Trade-off: 5000 requests/hour rate limit per authenticated user vs git's single bulk transfer.
 
-**2. Babel parser over tree-sitter**
-Tree-sitter requires native C++ compilation via node-gyp, which fails on Windows without Visual Studio Build Tools. `@babel/parser` is pure JavaScript, zero native dependencies, cross-platform. Both produce equivalent AST for JS/TS — the parsing quality is the same.
+**2. Babel parser over tree-sitter for JS/TS**
+Tree-sitter requires native C++ compilation via node-gyp, which fails on Windows without Visual Studio Build Tools. `@babel/parser` is pure JavaScript, zero native dependencies, cross-platform. Both produce equivalent AST for JS/TS — the parsing quality is the same. Tree-sitter is now being introduced specifically for Python support, where no equivalent pure-JS parser exists.
 
 **3. MongoDB + Supabase split**
 MongoDB handles relational data (users, sessions, repos, reviews) where flexible schema and TTL indexes (auto-expire refresh tokens) are valuable. Supabase pgvector handles vector similarity search — native cosine distance via `<=>` operator, hnsw index. Forcing everything into one DB would mean either paying for MongoDB Atlas Vector Search or giving up native Postgres vector operations.
@@ -174,6 +183,12 @@ Free-form loops (ReAct pattern) are harder to debug and can spiral. LangGraph fo
 **7. Respond 200 to webhook immediately, process async**
 GitHub requires a webhook response within 10 seconds or it marks the delivery as failed and retries. The agent takes 15-30 seconds (LLM calls + embedding calls). Solution: respond 200 immediately, then process the PR review asynchronously in the same request handler after the response is sent. This is a common pattern in webhook-driven systems.
 
+**8. Inline diff-level comments over a single summary comment**
+Posting one large markdown comment forced reviewers to manually map feedback back to specific lines. Switching to GitHub's Reviews API lets CodeSense attach each finding directly to the relevant line in the diff, matching how human reviewers actually comment on PRs — and making individual pieces of feedback resolvable/threadable.
+
+**9. Eval harness as a first-class part of the agent loop**
+Without a scored eval set, prompt changes were graded by vibes. The 50-case labeled harness plus `trackedGroqCall` cost/latency logging means prompt or model changes can be evaluated on both review quality and cost/latency trade-offs before shipping — and the versioned prompt changelog ties score changes back to a specific prompt revision.
+
 ---
 
 ## Project Structure
@@ -186,26 +201,32 @@ codesense/
 │   │   ├── nodes.js          # planNode, retrieveNode, analyzeNode, reviewNode
 │   │   ├── state.js          # createInitialState — agent state shape
 │   │   └── tools.js          # retrieveContext, extractChangedFunctions, summarizeDiff
+│   ├── eval/
+│   │   ├── cases/            # 50 hand-labeled PR test cases
+│   │   ├── runEval.js        # scores agent output against ground truth
+│   │   └── promptChangelog.js # versioned prompt history + eval score correlation
 │   ├── middleware/
 │   │   └── verifyToken.js    # JWT access token verification
 │   ├── models/
 │   │   ├── User.js           # githubId, username, encrypted GitHub token
 │   │   ├── RefreshToken.js   # hashed token, TTL index for auto-expire
 │   │   ├── Repo.js           # connected repos, ingestion status, chunk count
-│   │   └── Review.js         # PR reviews, verdict, analysis, trace
+│   │   └── Review.js         # PR reviews, verdict, analysis, trace, cost/latency
 │   ├── routes/
 │   │   ├── auth.js           # GitHub OAuth, refresh, logout
 │   │   ├── repos.js          # list, connect, ingest
-│   │   ├── qa.js             # Q&A endpoint
+│   │   ├── qa.js              # Q&A endpoint
 │   │   ├── reviews.js        # review history API
 │   │   └── webhooks.js       # GitHub App webhook listener
 │   ├── utils/
-│   │   ├── astParser.js      # Babel AST parsing, chunk extraction
+│   │   ├── astParser.js      # Babel AST parsing, chunk extraction (JS/TS)
+│   │   ├── pyParser.js       # tree-sitter Python parsing (in progress)
 │   │   ├── embeddings.js     # Gemini embeddings with retry
 │   │   ├── encrypt.js        # AES-256-GCM encrypt/decrypt
-│   │   ├── githubApp.js      # GitHub App, fetchPRDiff, postPRComment
+│   │   ├── githubApp.js      # GitHub App, fetchPRDiff, postInlineReviewComments
 │   │   ├── supabase.js       # pg Pool connection
 │   │   ├── tokenUtils.js     # JWT generation, cookie helpers, hash
+│   │   ├── trackedGroqCall.js # wraps Groq calls with cost/latency tracking
 │   │   └── vectorStore.js    # storeChunks, searchChunks, deleteChunks
 │   ├── .env.example
 │   └── server.js
@@ -235,12 +256,9 @@ codesense/
 - Query expansion: generate 3 variants of the user question, search all 3
 
 ### Agent review quality
-**Current**: single-pass analysis, no self-critique
-**Problem**: agent sometimes generates generic feedback not grounded in the specific diff
-**Planned**:
-- Eval harness: 20-30 hand-labeled PRs with "what a good review should flag"
-- Precision/recall scoring against ground truth
-- Reflection node: agent critiques its own review and revises if confidence is low
+**Status**: Largely addressed — the 50-case eval harness with precision/recall-style scoring against hand-labeled ground truth is now in place, and `trackedGroqCall` gives visibility into cost/latency trade-offs of prompt changes
+**Remaining**:
+- Reflection node: agent critiques its own review and revises if confidence is low (not yet implemented)
 
 ### Rate limiting
 **Current**: 1.5s delay between embedding calls, 500ms delay between GitHub API file fetches
@@ -250,12 +268,16 @@ codesense/
 - Batch embedding API when available
 - Background job queue (Bull/BullMQ) so ingestion does not block the request
 
-### Multi-user
-**Current**: single-user tested, no installationId stored per repo
-**Problem**: if two users connect the same repo, webhook events use installation.id from payload which may not match the user who connected it
-**Planned**:
-- Store installationId in Repo model on webhook installation event
-- Map installation.created webhook to user via GitHub API
+### Multi-user & multi-repo installs
+**Status**: Partially addressed — the GitHub App is now public with a self-serve setup flow, so multiple users can install it independently
+**Remaining**:
+- Confirm `installationId` is stored per repo on the `installation.created` webhook and correctly mapped if two users connect the same repo
+- Map `installation.created` webhook to the correct user via the GitHub API where ambiguous
+
+### Multi-language support
+**Current**: JS/TS only, via Babel
+**In progress**: Python support via tree-sitter — parser integration scoped, not yet shipped
+**Planned**: extend chunk extraction and eval cases to cover Python once parsing lands
 
 ### Deployment
 **Current**: local only (smee.io for webhook proxying)
@@ -348,10 +370,4 @@ create index on code_chunks (user_id);
 
 ---
 
-## What's Next (Week 3-5)
 
-| Week | Focus |
-|------|-------|
-| Week 3 | Eval harness — 20-30 labeled PRs, precision/recall scoring, iterate on agent prompts |
-| Week 4 | Incremental ingestion, sliding window chunking, re-ranking |
-| Week 5 | Deploy to Render/Netlify, rate limiting, refresh token rotation, public demo |
