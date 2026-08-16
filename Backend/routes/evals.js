@@ -5,7 +5,8 @@ import EvalCase from '../models/EvalCase.js';
 import Repo from '../models/Repo.js';
 import { embedText } from '../utils/embeddings.js';
 import { searchChunks } from '../utils/vectorStore.js';
-import { trackedGroqCall } from '../utils/trackedGroqCall.js'; // NEW
+import { trackedGroqCall } from '../utils/trackedGroqCall.js';
+import { EVAL_PROMPT_VERSION } from '../utils/promptVersions.js';
 
 const router = express.Router();
 
@@ -19,38 +20,19 @@ router.get('/status', verifyToken, (req, res) => {
 });
 
 // POST /api/evals/run — trigger full eval run from dashboard
-/* router.post('/run', verifyToken, async (req, res) => {
-  if (evalRunning) {
-    return res.status(409).json({ message: 'Eval already running' });
-  }
-
-  // Respond immediately — eval runs in background
-  res.json({ message: 'Eval started', status: 'running' });
-
-  evalRunning = true;
-  evalProgress = { status: 'running', step: 'Starting...', progress: 0, total: 0 };
-
-  // Run async in background
-  runEvals().catch((err) => {
-    console.error('Eval run error:', err.message);
-    evalProgress = { status: 'failed', step: err.message, progress: 0, total: 0 };
-    evalRunning = false;
-  });
-}); */
-
 router.post('/run', verifyToken, async (req, res) => {
   if (evalRunning) {
     return res.status(409).json({ message: 'Eval already running' });
   }
 
-  const triggeredByUserId = req.userId; // NEW — capture before responding, since runEvals() is async/detached
+  const triggeredByUserId = req.userId; // capture before responding, since runEvals() is async/detached
 
   res.json({ message: 'Eval started', status: 'running' });
 
   evalRunning = true;
   evalProgress = { status: 'running', step: 'Starting...', progress: 0, total: 0 };
 
-  runEvals(triggeredByUserId).catch((err) => { // CHANGED — pass userId through
+  runEvals(triggeredByUserId).catch((err) => {
     console.error('Eval run error:', err.message);
     evalProgress = { status: 'failed', step: err.message, progress: 0, total: 0 };
     evalRunning = false;
@@ -60,7 +42,7 @@ router.post('/run', verifyToken, async (req, res) => {
 const runEvals = async (triggeredByUserId) => {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   const TOP_K = 8;
-  const PROMPT_VERSION = 'v1.0'; // NEW (Fix 2) — bump manually when review/scoring prompt wording changes
+  // REMOVED: const PROMPT_VERSION = 'v1.0';  ← this was shadowing the imported EVAL_PROMPT_VERSION and was never actually used correctly
 
   const isRelevant = (chunk, relevantFiles, relevantFunctions) => {
     const chunkFile = chunk.file_path?.toLowerCase() || '';
@@ -115,7 +97,7 @@ const runEvals = async (triggeredByUserId) => {
 
       evalCase.results.push({
         runAt: new Date(),
-        promptVersion: PROMPT_VERSION, // NEW (Fix 2)
+        promptVersion: EVAL_PROMPT_VERSION, // CHANGED — was PROMPT_VERSION
         precision,
         recall,
         notes: `topK=${TOP_K} — triggered from dashboard`,
@@ -137,22 +119,17 @@ const runEvals = async (triggeredByUserId) => {
     total: reviewCases.length,
   };
 
-  // REMOVED (Fix 1) — repo lookup no longer hoisted out of the loop using only reviewCases[0].
-  // It's now resolved per-case inside the loop below, using each case's own repoFullName.
-
   for (let i = 0; i < reviewCases.length; i++) {
     const evalCase = reviewCases[i];
-    const { prTitle, diff, groundTruth, repoFullName } = evalCase.review; // added repoFullName
+    const { prTitle, diff, groundTruth, repoFullName } = evalCase.review;
 
     evalProgress.step = `Review ${i + 1}/${reviewCases.length}: "${prTitle.slice(0, 40)}..."`;
     evalProgress.progress = i + 1;
 
     try {
-      // NEW (Fix 1) — per-case repo lookup instead of reviewCases[0]
       const repo = await Repo.findOne({ fullName: repoFullName }).select('_id');
       const repoIdStr = repo?._id?.toString();
 
-      // Generate review
       const queryEmbedding = await embedText(prTitle);
       const chunks = await searchChunks(queryEmbedding, repoIdStr, 4);
       const context = chunks
@@ -161,15 +138,14 @@ const runEvals = async (triggeredByUserId) => {
         )
         .join('\n\n');
 
-      // CHANGED — wrapped with trackedGroqCall (cost/latency logging), prompt content unchanged
       const { response: generateCompletion } = await trackedGroqCall({
         context: 'eval_run',
-        userId: triggeredByUserId, // NEW
+        userId: triggeredByUserId,
         callKind: 'generate',
         repoFullName,
         evalCaseId: evalCase._id,
         model: 'llama-3.3-70b-versatile',
-        promptVersion: PROMPT_VERSION,
+        promptVersion: EVAL_PROMPT_VERSION, // CHANGED — was PROMPT_VERSION
         callFn: () => groq.chat.completions.create({
           model: 'llama-3.3-70b-versatile',
           messages: [{
@@ -194,15 +170,14 @@ Write a concise review in markdown. Include verdict: APPROVE / REQUEST_CHANGES /
 
       const generatedReview = generateCompletion.choices[0].message.content;
 
-      // Score it — CHANGED — wrapped with trackedGroqCall, prompt content unchanged
       const { response: scoreCompletion } = await trackedGroqCall({
         context: 'eval_run',
         callKind: 'score',
-         userId: triggeredByUserId, // NEW
+        userId: triggeredByUserId,
         repoFullName,
         evalCaseId: evalCase._id,
         model: 'llama-3.3-70b-versatile',
-        promptVersion: PROMPT_VERSION,
+        promptVersion: EVAL_PROMPT_VERSION, // CHANGED — was PROMPT_VERSION
         callFn: () => groq.chat.completions.create({
           model: 'llama-3.3-70b-versatile',
           messages: [{
@@ -237,7 +212,7 @@ Return ONLY JSON:
 
       evalCase.results.push({
         runAt: new Date(),
-        promptVersion: PROMPT_VERSION, // NEW (Fix 2)
+        promptVersion: EVAL_PROMPT_VERSION, // CHANGED — was PROMPT_VERSION
         rubricScores: {
           caughtRealIssues: scores.caughtRealIssues,
           falsePositives: scores.falsePositives,
@@ -368,14 +343,13 @@ router.get('/cases', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch eval cases' });
   }
 });
- 
+
 // GET /api/evals/versions — compare metrics across all promptVersions ever run
 router.get('/versions', verifyToken, async (req, res) => {
   try {
     const retrievalCases = await EvalCase.find({ type: 'retrieval' });
     const reviewCases = await EvalCase.find({ type: 'review' });
 
-    // Flatten every result from every case into one list, tagged by version
     const retrievalByVersion = {};
     for (const evalCase of retrievalCases) {
       for (const result of evalCase.results || []) {

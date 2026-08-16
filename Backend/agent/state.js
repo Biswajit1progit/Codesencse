@@ -7,6 +7,7 @@ export const createInitialState = (prData) => ({
   repo: prData.repo,
   pullNumber: prData.pullNumber,
   repoId: prData.repoId,
+  userId: prData.userId, // NEW — needed by trackedGroqCall in nodes.js for cost/latency attribution
   installationId: prData.installationId,
   prDetails: prData.prDetails,
   diff: prData.diff,

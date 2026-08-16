@@ -1,5 +1,7 @@
 import Groq from 'groq-sdk';
 import { retrieveContext, extractChangedFunctions, summarizeDiff } from './tools.js';
+import { trackedGroqCall } from '../utils/trackedGroqCall.js'; // NEW
+import { AGENT_PROMPT_VERSION } from '../utils/promptVersions.js'; // NEW
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -34,11 +36,21 @@ ${diffSummary.files.map(f => `- ${f.filename} (${f.status}: +${f.additions} -${f
 Generate 2-3 specific search queries to retrieve relevant context from the codebase. Return ONLY a JSON array of query strings, nothing else.
 Example: ["how is auth middleware implemented", "where are database transactions used"]`;
 
-  const completion = await groq.chat.completions.create({
+  // CHANGED — wrapped with trackedGroqCall; prompt content and every downstream line unchanged
+  const { response: completion } = await trackedGroqCall({
+    context: 'pr_review',
+    userId: state.userId,
+    repoFullName: `${state.owner}/${state.repo}`,
+    prNumber: state.pullNumber,
+    callKind: 'plan',
     model: 'llama-3.3-70b-versatile',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.1,
-    max_tokens: 256,
+    promptVersion: AGENT_PROMPT_VERSION,
+    callFn: () => groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      max_tokens: 256,
+    }),
   });
 
   let queries = [];
@@ -64,7 +76,7 @@ Example: ["how is auth middleware implemented", "where are database transactions
   };
 };
 
-// Node 2 — RETRIEVE
+// Node 2 — RETRIEVE (unchanged — no Groq calls in this node)
 export const retrieveNode = async (state) => {
   console.log('\n--- RETRIEVE NODE ---');
 
@@ -88,7 +100,6 @@ export const retrieveNode = async (state) => {
     }
   }
 
-  // File diversity — max 2 chunks per file path
   const fileCounts = {};
   const diverseChunks = [];
   for (const chunk of allChunks) {
@@ -107,93 +118,90 @@ export const retrieveNode = async (state) => {
     trace: addTrace(state, 'RETRIEVE', `Retrieved ${diverseChunks.length} chunks from ${state.plan.queries.length} queries (diversity filtered)`),
   };
 };
+ 
 
-// Node 3 — ANALYZE
-/* export const analyzeNode = async (state) => {
-  console.log('\n--- ANALYZE NODE ---');
+// Node 2.5 — GRADE (context grading, sits between RETRIEVE and ANALYZE)
+export const gradeNode = async (state) => {
+  console.log('\n--- GRADE NODE ---');
 
   if (state.plan.skip) {
     return {
       ...state,
-      analysis: { skip: true },
-      trace: addTrace(state, 'ANALYZE', 'Skipped'),
+      trace: addTrace(state, 'GRADE', 'Skipped — no JS/TS files'),
+    };
+  }
+
+  if (state.retrievedChunks.length === 0) {
+    return {
+      ...state,
+      trace: addTrace(state, 'GRADE', 'No chunks to grade'),
     };
   }
 
   const diffSummary = state.plan.diffSummary;
-
-  const context = state.retrievedChunks
-    .slice(0, 6)
-    .map((c, i) =>
-      `[${i + 1}] ${c.chunk_type} "${c.chunk_name}" in ${c.file_path}:\n\`\`\`\n${c.content.slice(0, 300)}\n\`\`\``
-    )
-    .join('\n\n');
-
   const diffContext = diffSummary.files
     .map(f => `File: ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
     .join('\n\n');
 
-  const prompt = `You are an expert code reviewer. Analyze this PR diff against the existing codebase context.
+  const chunksList = state.retrievedChunks
+    .map((c, i) => `[${i}] ${c.chunk_type} "${c.chunk_name}" in ${c.file_path}:\n${c.content.slice(0, 200)}`)
+    .join('\n\n');
 
-PR: "${state.prDetails.title}"
-Author: ${state.prDetails.author}
-
-EXISTING CODEBASE CONTEXT:
-${context}
+  const prompt = `You are grading retrieved code context for relevance to a PR diff.
 
 PR DIFF:
 ${diffContext}
 
-Analyze the changes and identify:
-1. Potential bugs or logic errors (type coercion, null checks, off-by-one)
-2. Security concerns (missing auth checks, IDOR, data exposure in logs, unvalidated input)
-3. Catastrophic operations (deleteMany with empty filter, irreversible actions, no confirmation)
-4. Performance issues
-5. Code style/pattern inconsistencies with existing code
-6. Missing error handling
-7. Sensitive data logging (console.error/log that may expose tokens, payment data, PII)
+RETRIEVED CHUNKS:
+${chunksList}
 
-Be specific — reference actual function names, variable names, and line numbers from the diff.
-Do not flag things that are correct patterns in the existing codebase.
+For each chunk, decide if it is actually relevant to reviewing this diff — meaning it would help spot bugs, security issues, or inconsistencies specific to the changed code. Irrelevant chunks only match on generic keywords but don't relate to the actual logic being changed.
 
-Return ONLY a JSON object with this structure:
-{
-  "bugs": ["description of bug 1"],
-  "security": ["security concern 1"],
-  "catastrophic": ["catastrophic operation 1"],
-  "performance": ["performance issue 1"],
-  "style": ["style issue 1"],
-  "missing": ["missing thing 1"],
-  "sensitive_logging": ["sensitive data logging concern 1"],
-  "positive": ["good thing about this PR"]
-}`;
+Return ONLY a JSON array of the indices (numbers) of chunks to KEEP. Example: [0, 2, 3]
+If all chunks are relevant, return all indices. If none are, return [].`;
 
-  const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.1,
-    max_tokens: 1024,
-  });
-
-  let analysis = {};
+  let keepIndices = [];
   try {
+    // NEW — wrapped with trackedGroqCall, same pattern as the other three nodes
+    const { response: completion } = await trackedGroqCall({
+      context: 'pr_review',
+      userId: state.userId,
+      repoFullName: `${state.owner}/${state.repo}`,
+      prNumber: state.pullNumber,
+      callKind: 'grade',
+      model: 'llama-3.3-70b-versatile',
+      promptVersion: AGENT_PROMPT_VERSION,
+      callFn: () => groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0,
+        max_tokens: 128,
+      }),
+    });
+
     const content = completion.choices[0].message.content.trim();
     const clean = content.replace(/```json|```/g, '').trim();
-    analysis = JSON.parse(clean);
+    keepIndices = JSON.parse(clean);
+    if (!Array.isArray(keepIndices)) throw new Error('not array');
   } catch {
-    analysis = { error: 'Failed to parse analysis', raw: completion.choices[0].message.content };
+    // fail-safe — grading broke, keep everything rather than losing context
+    keepIndices = state.retrievedChunks.map((_, i) => i);
   }
 
-  const issueCount = Object.values(analysis)
-    .filter(v => Array.isArray(v))
-    .reduce((sum, arr) => sum + arr.length, 0);
+  const gradedChunks = state.retrievedChunks.filter((_, i) => keepIndices.includes(i));
+
+  console.log(`Graded ${state.retrievedChunks.length} chunks → kept ${gradedChunks.length}`);
 
   return {
     ...state,
-    analysis,
-    trace: addTrace(state, 'ANALYZE', `Found ${issueCount} items across ${Object.keys(analysis).length} categories`),
+    retrievedChunks: gradedChunks,
+    trace: addTrace(
+      state,
+      'GRADE',
+      `Kept ${gradedChunks.length}/${state.retrievedChunks.length} chunks after relevance grading`
+    ),
   };
-}; */
+};
 // Node 3 — ANALYZE
 export const analyzeNode = async (state) => {
   console.log('\n--- ANALYZE NODE ---');
@@ -265,11 +273,21 @@ Return ONLY a JSON object with this structure:
 
 IMPORTANT for "findings": this array must mirror the issues you already listed above (bugs/security/catastrophic/performance/missing/sensitive_logging), but with a specific file path (must exactly match one of the file paths shown in PR DIFF above) and line number (must be a line number visible in that file's diff hunk — either a "+" added line or a " " context line, never a "-" removed line). Do not include "style" or "positive" items in findings. If you cannot confidently attribute an issue to a specific line, omit it from findings but still include it in its category array above.`;
 
-  const completion = await groq.chat.completions.create({
+  // CHANGED — wrapped with trackedGroqCall; prompt content and every downstream line unchanged
+  const { response: completion } = await trackedGroqCall({
+    context: 'pr_review',
+    userId: state.userId,
+    repoFullName: `${state.owner}/${state.repo}`,
+    prNumber: state.pullNumber,
+    callKind: 'analyze',
     model: 'llama-3.3-70b-versatile',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.1,
-    max_tokens: 1536, // increased from 1024 — findings array adds output length
+    promptVersion: AGENT_PROMPT_VERSION,
+    callFn: () => groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      max_tokens: 1536,
+    }),
   });
 
   let analysis = {};
@@ -277,7 +295,7 @@ IMPORTANT for "findings": this array must mirror the issues you already listed a
     const content = completion.choices[0].message.content.trim();
     const clean = content.replace(/```json|```/g, '').trim();
     analysis = JSON.parse(clean);
-    if (!Array.isArray(analysis.findings)) analysis.findings = []; // NEW — safety default
+    if (!Array.isArray(analysis.findings)) analysis.findings = [];
   } catch {
     analysis = { error: 'Failed to parse analysis', raw: completion.choices[0].message.content, findings: [] };
   }
@@ -292,6 +310,7 @@ IMPORTANT for "findings": this array must mirror the issues you already listed a
     trace: addTrace(state, 'ANALYZE', `Found ${issueCount} items across ${Object.keys(analysis).length} categories`),
   };
 };
+
 // Node 4 — REVIEW
 export const reviewNode = async (state) => {
   console.log('\n--- REVIEW NODE ---');
@@ -328,11 +347,21 @@ Write a review comment that:
 
 Keep it concise — max 400 words.`;
 
-  const completion = await groq.chat.completions.create({
+  // CHANGED — wrapped with trackedGroqCall; prompt content and every downstream line unchanged
+  const { response: completion } = await trackedGroqCall({
+    context: 'pr_review',
+    userId: state.userId,
+    repoFullName: `${state.owner}/${state.repo}`,
+    prNumber: state.pullNumber,
+    callKind: 'review',
     model: 'llama-3.3-70b-versatile',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.2,
-    max_tokens: 1024,
+    promptVersion: AGENT_PROMPT_VERSION,
+    callFn: () => groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.2,
+      max_tokens: 1024,
+    }),
   });
 
   const review = completion.choices[0].message.content;

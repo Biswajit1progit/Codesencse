@@ -99,7 +99,7 @@ export const runReviewAgent = async (prData) => {
 }; */
 
 
-import { planNode, retrieveNode, analyzeNode, reviewNode } from './nodes.js';
+import { planNode, retrieveNode,gradeNode, analyzeNode, reviewNode } from './nodes.js';
 import { createInitialState } from './state.js';
 import { getInstallationOctokit, postPRComment, postInlineReview } from '../utils/githubApp.js'; // CHANGED — added postInlineReview
 import { buildValidLineMap } from '../utils/diffParser.js'; // NEW
@@ -157,6 +157,7 @@ export const runReviewAgent = async (prData) => {
     // Run all nodes
     state = await planNode(state);
     state = await retrieveNode(state);
+    state = await gradeNode(state);
     state = await analyzeNode(state);
     state = await reviewNode(state);
 

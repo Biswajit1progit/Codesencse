@@ -4,6 +4,8 @@ import Repo from '../models/Repo.js';
 import { embedText, buildEmbeddingText } from '../utils/embeddings.js';
 import { searchChunks } from '../utils/vectorStore.js';
 import Groq from 'groq-sdk';
+import { trackedGroqCall } from '../utils/trackedGroqCall.js'; // NEW
+import { QA_PROMPT_VERSION } from '../utils/promptVersions.js'; // NEW
 
 const router = express.Router();
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -50,33 +52,43 @@ ${chunk.content}
       )
       .join('\n\n');
 
-    // Ask Groq with retrieved context
-    const completion = await groq.chat.completions.create({
+    // CHANGED — wrapped with trackedGroqCall; prompt content and everything else unchanged
+    const { response: completion } = await trackedGroqCall({
+      context: 'qa',
+      userId: req.userId,
+      repoFullName: repo.fullName,
+      callKind: 'qa',
       model: 'llama-3.3-70b-versatile',
-      messages: [
-        {
-          role: 'system',
-          content: `You are CodeSense, an expert code assistant. Answer questions about the codebase using ONLY the provided code context. Be precise, reference specific function names and file paths. If the answer is not in the context, say so clearly.`,
-        },
-        {
-          role: 'user',
-          content: `Codebase: ${repo.fullName}
+      promptVersion: QA_PROMPT_VERSION,
+      callFn: () => groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          {
+            role: 'system',
+            content: `You are CodeSense, an expert code assistant. Answer questions about the codebase using ONLY the provided code context. Be precise, reference specific function names and file paths. If the answer is not in the context, say so clearly.`,
+          },
+          {
+            role: 'user',
+            content: `Codebase: ${repo.fullName}
 
 Code context:
 ${context}
 
 Question: ${question}`,
-        },
-      ],
-      temperature: 0.1,
-      max_tokens: 1024,
+          },
+        ],
+        temperature: 0.1,
+        max_tokens: 1024,
+      }),
     });
 
     const answer = completion.choices[0].message.content;
-   // After generating answer, increment question count
-await Repo.findByIdAndUpdate(repoId, {
-  $inc: { questionCount: 1 }
-});
+
+    // After generating answer, increment question count
+    await Repo.findByIdAndUpdate(repoId, {
+      $inc: { questionCount: 1 }
+    });
+
     res.json({
       answer,
       sources: relevantChunks.map((chunk) => ({
