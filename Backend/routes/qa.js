@@ -58,10 +58,10 @@ ${chunk.content}
       userId: req.userId,
       repoFullName: repo.fullName,
       callKind: 'qa',
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       promptVersion: QA_PROMPT_VERSION,
       callFn: () => groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'openai/gpt-oss-120b',
         messages: [
           {
             role: 'system',
