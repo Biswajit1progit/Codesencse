@@ -6,7 +6,9 @@ import Repo from '../models/Repo.js';
 import { embedText } from '../utils/embeddings.js';
 import { searchChunks } from '../utils/vectorStore.js';
 import { trackedGroqCall } from '../utils/trackedGroqCall.js';
-import { EVAL_PROMPT_VERSION } from '../utils/promptVersions.js';
+import { planNode, retrieveNode, gradeNode, analyzeNode, reviewNode } from '../agent/nodes.js'; // NEW
+import { parseDiffString } from '../utils/diffStringParser.js'; // NEW
+import { AGENT_PROMPT_VERSION,EVAL_PROMPT_VERSION } from '../utils/promptVersions.js';
 
 const router = express.Router();
 
@@ -120,69 +122,66 @@ const runEvals = async (triggeredByUserId) => {
   };
 
   for (let i = 0; i < reviewCases.length; i++) {
-    const evalCase = reviewCases[i];
-    const { prTitle, diff, groundTruth, repoFullName } = evalCase.review;
+  const evalCase = reviewCases[i];
+  const { prTitle, diff, groundTruth, repoFullName } = evalCase.review;
 
-    evalProgress.step = `Review ${i + 1}/${reviewCases.length}: "${prTitle.slice(0, 40)}..."`;
-    evalProgress.progress = i + 1;
+  evalProgress.step = `Review ${i + 1}/${reviewCases.length}: "${prTitle.slice(0, 40)}..."`;
+  evalProgress.progress = i + 1;
 
-    try {
-      const repo = await Repo.findOne({ fullName: repoFullName }).select('_id');
-      const repoIdStr = repo?._id?.toString();
+  try {
+    const repo = await Repo.findOne({ fullName: repoFullName }).select('_id');
+    const repoIdStr = repo?._id?.toString();
 
-      const queryEmbedding = await embedText(prTitle);
-      const chunks = await searchChunks(queryEmbedding, repoIdStr, 4);
-      const context = chunks
-        .map((c, idx) =>
-          `[${idx + 1}] ${c.chunk_type} "${c.chunk_name}" in ${c.file_path}:\n\`\`\`\n${c.content.slice(0, 300)}\n\`\`\``
-        )
-        .join('\n\n');
+    // NEW — build state exactly like the live agent, then run the REAL pipeline
+    const parsedFiles = parseDiffString(diff);
 
-      const { response: generateCompletion } = await trackedGroqCall({
-        context: 'eval_run',
-        userId: triggeredByUserId,
-        callKind: 'generate',
-        repoFullName,
-        evalCaseId: evalCase._id,
+    let state = {
+      owner: repoFullName?.split('/')[0] || 'unknown',
+      repo: repoFullName?.split('/')[1] || 'unknown',
+      pullNumber: evalCase.review.prNumber || 0,
+      repoId: repoIdStr,
+      installationId: null, // not needed — eval stops before POST
+      userId: triggeredByUserId,
+      prDetails: {
+        title: prTitle,
+        author: 'eval-harness',
+        additions: parsedFiles.reduce((s, f) => s + f.additions, 0),
+        deletions: parsedFiles.reduce((s, f) => s + f.deletions, 0),
+        changedFiles: parsedFiles.length,
+      },
+      diff: parsedFiles,
+      plan: null,
+      retrievedChunks: [],
+      analysis: null,
+      review: null,
+      reviewPosted: false,
+      trace: [],
+      error: null,
+    };
+
+    // CHANGED — this now calls the exact same code that runs on real PRs, including gradeNode
+    state = await planNode(state);
+    state = await retrieveNode(state);
+    state = await gradeNode(state);
+    state = await analyzeNode(state);
+    state = await reviewNode(state);
+
+    const generatedReview = state.review;
+
+    // Score it — dedicated eval-only prompt, still tagged with EVAL_PROMPT_VERSION
+    const { response: scoreCompletion } = await trackedGroqCall({
+      context: 'eval_run',
+      callKind: 'score',
+      userId: triggeredByUserId,
+      repoFullName,
+      evalCaseId: evalCase._id,
+      model: 'llama-3.3-70b-versatile',
+      promptVersion: EVAL_PROMPT_VERSION,
+      callFn: () => groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
-        promptVersion: EVAL_PROMPT_VERSION, // CHANGED — was PROMPT_VERSION
-        callFn: () => groq.chat.completions.create({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{
-            role: 'user',
-            content: `You are CodeSense, an expert code reviewer. Review this PR diff.
-
-PR: "${prTitle}"
-Codebase context:
-${context}
-
-PR Diff:
-\`\`\`diff
-${diff}
-\`\`\`
-
-Write a concise review in markdown. Include verdict: APPROVE / REQUEST_CHANGES / COMMENT`,
-          }],
-          temperature: 0.1,
-          max_tokens: 800,
-        }),
-      });
-
-      const generatedReview = generateCompletion.choices[0].message.content;
-
-      const { response: scoreCompletion } = await trackedGroqCall({
-        context: 'eval_run',
-        callKind: 'score',
-        userId: triggeredByUserId,
-        repoFullName,
-        evalCaseId: evalCase._id,
-        model: 'llama-3.3-70b-versatile',
-        promptVersion: EVAL_PROMPT_VERSION, // CHANGED — was PROMPT_VERSION
-        callFn: () => groq.chat.completions.create({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{
-            role: 'user',
-            content: `Score this code review on 5 dimensions (0-10 each).
+        messages: [{
+          role: 'user',
+          content: `Score this code review on 5 dimensions (0-10 each).
 
 Ground Truth issues: ${groundTruth.shouldCatch.join(', ')}
 Expected verdict: ${groundTruth.expectedVerdict}
@@ -192,44 +191,44 @@ ${generatedReview}
 
 Return ONLY JSON:
 {"caughtRealIssues":7,"falsePositives":8,"specificity":6,"actionability":7,"verdictCorrect":10,"reasoning":"brief explanation"}`,
-          }],
-          temperature: 0.1,
-          max_tokens: 256,
-        }),
-      });
+        }],
+        temperature: 0.1,
+        max_tokens: 256,
+      }),
+    });
 
-      const scoreContent = scoreCompletion.choices[0].message.content
-        .trim()
-        .replace(/```json|```/g, '')
-        .trim();
-      const scores = JSON.parse(scoreContent);
-      const overall =
-        (scores.caughtRealIssues +
-          scores.falsePositives +
-          scores.specificity +
-          scores.actionability +
-          scores.verdictCorrect) / 5;
+    const scoreContent = scoreCompletion.choices[0].message.content
+      .trim()
+      .replace(/```json|```/g, '')
+      .trim();
+    const scores = JSON.parse(scoreContent);
+    const overall =
+      (scores.caughtRealIssues +
+        scores.falsePositives +
+        scores.specificity +
+        scores.actionability +
+        scores.verdictCorrect) / 5;
 
-      evalCase.results.push({
-        runAt: new Date(),
-        promptVersion: EVAL_PROMPT_VERSION, // CHANGED — was PROMPT_VERSION
-        rubricScores: {
-          caughtRealIssues: scores.caughtRealIssues,
-          falsePositives: scores.falsePositives,
-          specificity: scores.specificity,
-          actionability: scores.actionability,
-          verdictCorrect: scores.verdictCorrect,
-        },
-        overallScore: overall,
-        notes: scores.reasoning + ' — triggered from dashboard',
-      });
-      await evalCase.save();
+    evalCase.results.push({
+      runAt: new Date(),
+      promptVersion: AGENT_PROMPT_VERSION, // CHANGED — tags which nodes.js version generated this review, not the eval harness version
+      rubricScores: {
+        caughtRealIssues: scores.caughtRealIssues,
+        falsePositives: scores.falsePositives,
+        specificity: scores.specificity,
+        actionability: scores.actionability,
+        verdictCorrect: scores.verdictCorrect,
+      },
+      overallScore: overall,
+      notes: `${scores.reasoning} — real agent pipeline, ${state.retrievedChunks.length} chunks after grading`,
+    });
+    await evalCase.save();
 
-      await new Promise(r => setTimeout(r, 3000));
-    } catch (err) {
-      console.error(`Review eval error on "${prTitle}": ${err.message}`);
-    }
+    await new Promise(r => setTimeout(r, 3000));
+  } catch (err) {
+    console.error(`Review eval error on "${prTitle}": ${err.message}`);
   }
+}
 
   evalProgress = { status: 'completed', step: 'Eval complete ✅', progress: 0, total: 0 };
   evalRunning = false;
