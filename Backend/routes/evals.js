@@ -113,6 +113,8 @@ const runEvals = async (triggeredByUserId) => {
   }
 
   // ── REVIEW EVAL ──
+  //here we add thing for showing the grade in evel dashbord
+  
   const reviewCases = await EvalCase.find({ type: 'review' });
   evalProgress = {
     status: 'running',
