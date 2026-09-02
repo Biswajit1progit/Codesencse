@@ -1,7 +1,7 @@
 import ReviewMetric from '../models/ReviewMetric.js';
 
 const PRICING = {
-  'llama-3.3-70b-versatile': { input: 0.59, output: 0.79 },
+  'openai/gpt-oss-120b': { input: 0.59, output: 0.79 },
 };
 
 function estimateCost(model, inputTokens, outputTokens) {

@@ -175,10 +175,10 @@ const runEvals = async (triggeredByUserId) => {
       userId: triggeredByUserId,
       repoFullName,
       evalCaseId: evalCase._id,
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       promptVersion: EVAL_PROMPT_VERSION,
       callFn: () => groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'openai/gpt-oss-120b',
         messages: [{
           role: 'user',
           content: `Score this code review on 5 dimensions (0-10 each).
