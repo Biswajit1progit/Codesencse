@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useRef } from 'react';
 import apiClient from '../api/apiClient';
-
+//show the all the precision
 const stats = [
   { label: 'Repos Connected', value: '0', icon: '📁' },
   { label: 'PRs Reviewed', value: '0', icon: '🔍' },
