@@ -43,10 +43,10 @@ Example: ["how is auth middleware implemented", "where are database transactions
     repoFullName: `${state.owner}/${state.repo}`,
     prNumber: state.pullNumber,
     callKind: 'plan',
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     promptVersion: AGENT_PROMPT_VERSION,
     callFn: () => groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,
       max_tokens: 256,
