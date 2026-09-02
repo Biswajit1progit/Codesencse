@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../api/apiClient';
-
+//evel dashbord
 const MetricCard = ({ label, value, unit = '', color = 'blue', delay = 0, decimals = 1 }) => (
   <motion.div
     initial={{ opacity: 0, y: 20 }}
