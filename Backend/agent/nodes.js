@@ -357,7 +357,7 @@ Keep it concise — max 400 words.`;
     model: 'openai/gpt-oss-120b',
     promptVersion: AGENT_PROMPT_VERSION,
     callFn: () => groq.chat.completions.create({
-      model: 'lopenai/gpt-oss-120b',
+      model: 'openai/gpt-oss-120b',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.2,
       max_tokens: 1024,
