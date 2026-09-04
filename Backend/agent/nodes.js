@@ -183,13 +183,19 @@ If all chunks are relevant, return all indices. If none are, return [].`;
     const clean = content.replace(/```json|```/g, '').trim();
    /*  keepIndices = JSON.parse(clean);
     if (!Array.isArray(keepIndices)) throw new Error('not array'); */
-    try {
+   try {
   keepIndices = JSON.parse(clean);
   if (!Array.isArray(keepIndices)) throw new Error('not array');
-} catch {
-  // NEW — fallback: pull any standalone numbers from the response as a best-effort array
+} catch (err) {
+  // CHANGED — added logging so silent fail-safes are traceable instead of invisible
   const numbers = clean.match(/\d+/g);
-  keepIndices = numbers ? numbers.map(Number) : state.retrievedChunks.map((_, i) => i);
+  if (numbers) {
+    keepIndices = numbers.map(Number);
+    console.log(`⚠️ GRADE parse failed (${err.message}) — recovered ${keepIndices.length} indices via regex fallback. Raw: ${clean.slice(0, 200)}`);
+  } else {
+    keepIndices = state.retrievedChunks.map((_, i) => i);
+    console.log(`⚠️ GRADE fail-safe triggered — kept ALL ${keepIndices.length} chunks (could not recover any indices). Raw: ${clean.slice(0, 200)}`);
+  }
 }
   } catch {
     // fail-safe — grading broke, keep everything rather than losing context
