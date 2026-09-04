@@ -193,7 +193,7 @@ Return ONLY JSON:
 {"caughtRealIssues":7,"falsePositives":8,"specificity":6,"actionability":7,"verdictCorrect":10,"reasoning":"brief explanation"}`,
         }],
         temperature: 0.1,
-        max_tokens: 256,
+        max_tokens: 512,
       }),
     });
 
