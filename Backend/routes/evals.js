@@ -189,7 +189,7 @@ Expected verdict: ${groundTruth.expectedVerdict}
 Review:
 ${generatedReview}
 
-Return ONLY JSON:
+Return ONLY JSON:Return ONLY valid JSON, no markdown formatting, no code fences. The "reasoning" field must be a single line with no quotation marks or line breaks inside it.
 {"caughtRealIssues":7,"falsePositives":8,"specificity":6,"actionability":7,"verdictCorrect":10,"reasoning":"brief explanation"}`,
         }],
         temperature: 0.1,
@@ -197,11 +197,38 @@ Return ONLY JSON:
       }),
     });
 
-    const scoreContent = scoreCompletion.choices[0].message.content
+    /* const scoreContent = scoreCompletion.choices[0].message.content
       .trim()
       .replace(/```json|```/g, '')
       .trim();
-    const scores = JSON.parse(scoreContent);
+    const scores = JSON.parse(scoreContent); */
+    const scoreContent = scoreCompletion.choices[0].message.content
+  .trim()
+  .replace(/```json|```/g, '')
+  .trim();
+
+let scores;
+try {
+  scores = JSON.parse(scoreContent);
+} catch {
+  // NEW — repair attempt: pull the 5 numeric fields via regex even if "reasoning" broke the JSON
+  const numMatch = (key) => {
+    const m = scoreContent.match(new RegExp(`"${key}"\\s*:\\s*(\\d+(\\.\\d+)?)`));
+    return m ? parseFloat(m[1]) : null;
+  };
+  const repaired = {
+    caughtRealIssues: numMatch('caughtRealIssues'),
+    falsePositives: numMatch('falsePositives'),
+    specificity: numMatch('specificity'),
+    actionability: numMatch('actionability'),
+    verdictCorrect: numMatch('verdictCorrect'),
+    reasoning: 'parse error — reasoning field dropped',
+  };
+  if ([repaired.caughtRealIssues, repaired.falsePositives, repaired.specificity, repaired.actionability, repaired.verdictCorrect].some(v => v === null)) {
+    throw new Error('Could not repair malformed scoring JSON');
+  }
+  scores = repaired;
+}
     const overall =
       (scores.caughtRealIssues +
         scores.falsePositives +

@@ -181,8 +181,16 @@ If all chunks are relevant, return all indices. If none are, return [].`;
 
     const content = completion.choices[0].message.content.trim();
     const clean = content.replace(/```json|```/g, '').trim();
-    keepIndices = JSON.parse(clean);
-    if (!Array.isArray(keepIndices)) throw new Error('not array');
+   /*  keepIndices = JSON.parse(clean);
+    if (!Array.isArray(keepIndices)) throw new Error('not array'); */
+    try {
+  keepIndices = JSON.parse(clean);
+  if (!Array.isArray(keepIndices)) throw new Error('not array');
+} catch {
+  // NEW — fallback: pull any standalone numbers from the response as a best-effort array
+  const numbers = clean.match(/\d+/g);
+  keepIndices = numbers ? numbers.map(Number) : state.retrievedChunks.map((_, i) => i);
+}
   } catch {
     // fail-safe — grading broke, keep everything rather than losing context
     keepIndices = state.retrievedChunks.map((_, i) => i);
