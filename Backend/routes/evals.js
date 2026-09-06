@@ -224,7 +224,10 @@ try {
     verdictCorrect: numMatch('verdictCorrect'),
     reasoning: 'parse error — reasoning field dropped',
   };
-  if ([repaired.caughtRealIssues, repaired.falsePositives, repaired.specificity, repaired.actionability, repaired.verdictCorrect].some(v => v === null)) {
+  if ([repaired.caughtRealIssues, repaired.falsePositives, repaired.specificity, repaired.actionability, repaired.verdictCorrect].some(v => v === null))
+     {
+          console.log(`⚠️ SCORE parse failed. Raw response: ${scoreContent.slice(0, 300)}`); // NEW
+
     throw new Error('Could not repair malformed scoring JSON');
   }
   scores = repaired;
