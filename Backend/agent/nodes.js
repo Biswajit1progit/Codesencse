@@ -50,6 +50,7 @@ Example: ["how is auth middleware implemented", "where are database transactions
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,
       max_tokens: 256,
+       reasoning_effort: 'low',
     }),
   });
 
@@ -175,32 +176,32 @@ If all chunks are relevant, return all indices. If none are, return [].`;
         model: 'openai/gpt-oss-120b',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0,
-        max_tokens: 128,
+        max_tokens: 256,
+         reasoning_effort: 'low',
       }),
     });
 
-    const content = completion.choices[0].message.content.trim();
-    const clean = content.replace(/```json|```/g, '').trim();
-   /*  keepIndices = JSON.parse(clean);
-    if (!Array.isArray(keepIndices)) throw new Error('not array'); */
-   try {
-  keepIndices = JSON.parse(clean);
-  if (!Array.isArray(keepIndices)) throw new Error('not array');
+      const content = completion.choices[0].message.content.trim();
+  const clean = content.replace(/```json|```/g, '').trim();
+
+  try {
+    keepIndices = JSON.parse(clean);
+    if (!Array.isArray(keepIndices)) throw new Error('not array');
+  } catch (err) {
+    const numbers = clean.match(/\d+/g);
+    if (numbers) {
+      keepIndices = numbers.map(Number);
+      console.log(`⚠️ GRADE parse failed (${err.message}) — recovered ${keepIndices.length} indices via regex fallback. Raw: ${clean.slice(0, 200)}`);
+    } else {
+      keepIndices = state.retrievedChunks.map((_, i) => i);
+      console.log(`⚠️ GRADE fail-safe triggered — kept ALL ${keepIndices.length} chunks (could not recover any indices). Raw: ${clean.slice(0, 200)}`);
+    }
+  }
 } catch (err) {
-  // CHANGED — added logging so silent fail-safes are traceable instead of invisible
-  const numbers = clean.match(/\d+/g);
-  if (numbers) {
-    keepIndices = numbers.map(Number);
-    console.log(`⚠️ GRADE parse failed (${err.message}) — recovered ${keepIndices.length} indices via regex fallback. Raw: ${clean.slice(0, 200)}`);
-  } else {
-    keepIndices = state.retrievedChunks.map((_, i) => i);
-    console.log(`⚠️ GRADE fail-safe triggered — kept ALL ${keepIndices.length} chunks (could not recover any indices). Raw: ${clean.slice(0, 200)}`);
-  }
+  // CHANGED — outer catch now logs too, so you can see call-level failures (rate limits, API errors), not just parse failures
+  console.log(`⚠️ GRADE call failed entirely — kept ALL chunks. Reason: ${err.message}`);
+  keepIndices = state.retrievedChunks.map((_, i) => i);
 }
-  } catch {
-    // fail-safe — grading broke, keep everything rather than losing context
-    keepIndices = state.retrievedChunks.map((_, i) => i);
-  }
 
   const gradedChunks = state.retrievedChunks.filter((_, i) => keepIndices.includes(i));
 
@@ -301,6 +302,7 @@ IMPORTANT for "findings": this array must mirror the issues you already listed a
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,
       max_tokens: 1536,
+       reasoning_effort: 'low',
     }),
   });
 
@@ -375,6 +377,7 @@ Keep it concise — max 400 words.`;
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.2,
       max_tokens: 1024,
+       reasoning_effort: 'low',
     }),
   });
 
