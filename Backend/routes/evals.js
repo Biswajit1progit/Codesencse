@@ -194,6 +194,7 @@ Return ONLY JSON:Return ONLY valid JSON, no markdown formatting, no code fences.
         }],
         temperature: 0.1,
         max_tokens: 512,
+        reasoning_effort: 'low',
       }),
     });
 
