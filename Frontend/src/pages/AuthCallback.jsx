@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient, { setAccessToken } from '../api/apiClient';
 import { useAuth } from '../context/AuthContext';
-
+/* the auth connection are here */
 const AuthCallback = () => {
   const navigate = useNavigate();
   const { setUser } = useAuth();
